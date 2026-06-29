@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Maps Scraper Pro</title>
+    <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; flex-direction: column; }
+.header { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-bottom: 1px solid #334155; padding: 24px 32px; text-align: center; }
+.header h1 { font-size: 1.8rem; font-weight: 700; background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.header p { color: #94a3b8; margin-top: 4px; font-size: 0.95rem; }
+.container { flex: 1; max-width: 1280px; margin: 0 auto; padding: 24px 32px; width: 100%; }
+.controls { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.search-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.search-row input[type="text"] { flex: 1; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 0.95rem; }
+.search-row input[type="text"]:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
+.search-row input[type="number"] { width: 90px; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 0.95rem; text-align: center; }
+.action-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.export-group { margin-left: auto; display: flex; gap: 8px; }
+.btn { padding: 9px 18px; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: #38bdf8; color: #0f172a; }
+.btn-primary:hover:not(:disabled) { background: #7dd3fc; }
+.btn-secondary { background: #334155; color: #e2e8f0; }
+.btn-secondary:hover:not(:disabled) { background: #475569; }
+.btn-danger { background: #ef4444; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #f87171; }
+.btn-success { background: #22c55e; color: #0f172a; }
+.btn-success:hover:not(:disabled) { background: #4ade80; }
+.status-bar { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 20px; font-size: 0.95rem; }
+#statusText { font-weight: 600; }
+#statusText.running { color: #38bdf8; }
+#statusText.paused { color: #f59e0b; }
+#statusText.done { color: #22c55e; }
+#statusText.error { color: #ef4444; }
+.results { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+thead th { position: sticky; top: 0; background: #0f172a; padding: 12px 14px; text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; border-bottom: 1px solid #334155; }
+tbody tr { border-bottom: 1px solid #1e293b; }
+tbody tr:hover { background: #1e293b; }
+tbody td { padding: 10px 14px; font-size: 0.9rem; color: #cbd5e1; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty-state { text-align: center; padding: 48px 20px; color: #64748b; }
+.footer { text-align: center; padding: 16px; color: #64748b; font-size: 0.85rem; border-top: 1px solid #1e293b; }
+.footer a { color: #38bdf8; text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #0f172a; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px; }
+.badge-demo { background: #f59e0b; color: #0f172a; }
+@media (max-width: 768px) { .container { padding: 12px; } .search-row { flex-direction: column; } .search-row input[type="number"] { width: 100%; } .action-row { flex-direction: column; align-items: stretch; } .export-group { margin-left: 0; justify-content: center; } tbody td { max-width: 140px; } }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>Google Maps Scraper Pro <span class="badge badge-demo">DEMO</span></h1>
+        <p>Search Google Maps and extract business data with emails</p>
+    </header>
+
+    <main class="container">
+        <section class="controls">
+            <div class="search-row">
+                <input type="text" id="query" placeholder="e.g. accounting firm near new york" autocomplete="off" />
+                <input type="number" id="maxResults" value="500" min="1" max="5000" title="Max results" />
+                <button id="btnSearch" class="btn btn-primary">Search</button>
+            </div>
+            <div class="action-row">
+                <button id="btnPause" class="btn btn-secondary" disabled>Pause</button>
+                <button id="btnStop" class="btn btn-danger" disabled>Stop</button>
+                <button id="btnClear" class="btn btn-secondary">Clear</button>
+                <div class="export-group">
+                    <button id="btnExportCsv" class="btn btn-success" disabled>Export CSV</button>
+                    <button id="btnExportXlsx" class="btn btn-success" disabled>Export XLSX</button>
+                    <button id="btnExportJson" class="btn btn-success" disabled>Export JSON</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="status-bar" id="statusBar">
+            <span id="statusText">Demo Mode</span>
+            <span id="scrapedCount">0</span> /
+            <span id="emailCount">0</span> emails
+        </section>
+
+        <section class="results">
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Business Name</th>
+                        <th>Category</th>
+                        <th>Address</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Website</th>
+                        <th>Rating</th>
+                        <th>Reviews</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody"></tbody>
+            </table>
+            <p class="empty-state" id="emptyState">This is a demo deployment on GitHub Pages.<br><br>The full scraper requires a Python backend (Flask + Playwright).<br>Deploy the complete app on <a href="https://railway.app" target="_blank" style="color:#38bdf8">Railway</a> for full functionality.</p>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>Created by Vaibhav Patel &mdash; <a href="https://linkedin.com/in/vaibhav2694p" target="_blank">LinkedIn</a> &middot; <a href="https://portfolio-vaibhavpatel.vercel.app/" target="_blank">Portfolio</a> &middot; <a href="https://github.com/vaibhav2694p" target="_blank">GitHub</a></p>
+    </footer>
+
+    <script>
+const $ = (s) => document.querySelector(s);
+const queryInput = $("#query");
+const maxResultsInput = $("#maxResults");
+const btnSearch = $("#btnSearch");
+const btnPause = $("#btnPause");
+const btnStop = $("#btnStop");
+const btnClear = $("#btnClear");
+const btnExportCsv = $("#btnExportCsv");
+const btnExportXlsx = $("#btnExportXlsx");
+const btnExportJson = $("#btnExportJson");
+const statusText = $("#statusText");
+const scrapedCount = $("#scrapedCount");
+const emailCount = $("#emailCount");
+const resultsBody = $("#resultsBody");
+const emptyState = $("#emptyState");
+
+const DEMO_DATA = [
+    { business_name: "George Dimov CPA", category: "Tax consultant", address: "211 E 43rd St Ste 7-100, New York, NY 10017", phone: "+1 212-641-0673", email: "info@nycaccountingconsulting.com", website: "https://www.nycaccountingconsulting.com", rating: 4.6, reviews: 42 },
+    { business_name: "Accountants on Air", category: "Accounting firm", address: "12 E 49th St. 11th Floor, New York, NY 10017", phone: "+1 800-518-1063", email: "", website: "https://accountantsonair.com", rating: 4.9, reviews: 28 },
+    { business_name: "CHAN & COMPANY LLC", category: "Certified public accountant", address: "11 E Broadway 6th floor, New York, NY 10002", phone: "+1 212-566-0560", email: "", website: "http://www.chancompanyllc.us", rating: 4.9, reviews: 15 },
+    { business_name: "Miller & Company LLP", category: "Certified public accountant", address: "274 Madison Ave #402, New York, NY 10016", phone: "+1 646-865-1444", email: "", website: "https://www.cpafirmnyc.com", rating: 4.7, reviews: 33 },
+    { business_name: "Ivy Tax and Accounting Services", category: "Certified public accountant", address: "1350 6th Ave 2nd floor, New York, NY 10019", phone: "+1 212-279-9000", email: "info@healthytaxes.com", website: "https://www.healthytaxes.com", rating: 5.0, reviews: 19 },
+    { business_name: "NYC Tax Solutions", category: "Tax preparation service", address: "500 7th Ave, New York, NY 10018", phone: "+1 212-555-0142", email: "contact@nyctaxsolutions.com", website: "https://nyctaxsolutions.com", rating: 4.8, reviews: 67 },
+    { business_name: "Liberty Tax Service", category: "Tax preparation service", address: "2892 Broadway, New York, NY 10025", phone: "+1 212-555-0198", email: "", website: "https://libertytax.com", rating: 4.3, reviews: 112 },
+    { business_name: "Precision Accounting Group", category: "Accounting firm", address: "1 Penn Plaza, New York, NY 10119", phone: "+1 212-555-0234", email: "info@precisionaccounting.com", website: "https://precisionaccounting.com", rating: 4.5, reviews: 54 },
+];
+
+let demoIndex = 0;
+let demoTimer = null;
+
+function enableExport() { btnExportCsv.disabled = false; btnExportXlsx.disabled = false; btnExportJson.disabled = false; }
+function disableExport() { btnExportCsv.disabled = true; btnExportXlsx.disabled = true; btnExportJson.disabled = true; }
+
+btnSearch.addEventListener("click", () => {
+    const q = queryInput.value.trim();
+    if (!q) { queryInput.focus(); return; }
+    btnSearch.disabled = true;
+    resultsBody.innerHTML = "";
+    demoIndex = 0;
+    emptyState.style.display = "none";
+    statusText.textContent = "Running\u2026";
+    statusText.className = "running";
+    btnPause.disabled = false;
+    btnStop.disabled = false;
+    disableExport();
+    demoTimer = setInterval(addDemoRow, 800);
+});
+
+btnPause.addEventListener("click", () => {
+    if (statusText.textContent === "Paused") {
+        statusText.textContent = "Running\u2026";
+        statusText.className = "running";
+        btnPause.textContent = "Pause";
+        demoTimer = setInterval(addDemoRow, 800);
+    } else {
+        statusText.textContent = "Paused";
+        statusText.className = "paused";
+        btnPause.textContent = "Resume";
+        clearInterval(demoTimer);
+    }
+});
+
+btnStop.addEventListener("click", stopDemo);
+btnClear.addEventListener("click", () => {
+    clearInterval(demoTimer);
+    resultsBody.innerHTML = "";
+    demoIndex = 0;
+    emptyState.style.display = "block";
+    statusText.textContent = "Demo Mode";
+    statusText.className = "";
+    scrapedCount.textContent = "0";
+    emailCount.textContent = "0";
+    btnSearch.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled = true;
+    btnPause.textContent = "Pause";
+    disableExport();
+});
+
+btnExportCsv.addEventListener("click", () => exportFile("csv"));
+btnExportXlsx.addEventListener("click", () => exportFile("xlsx"));
+btnExportJson.addEventListener("click", () => exportFile("json"));
+
+function addDemoRow() {
+    if (demoIndex >= DEMO_DATA.length) { stopDemo(); return; }
+    const r = DEMO_DATA[demoIndex];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${demoIndex+1}</td><td>${esc(r.business_name)}</td><td>${esc(r.category)}</td><td>${esc(r.address)}</td><td>${esc(r.phone)}</td><td>${esc(r.email)}</td><td>${esc(r.website)}</td><td>${r.rating}</td><td>${r.reviews}</td>`;
+    resultsBody.appendChild(tr);
+    demoIndex++;
+    scrapedCount.textContent = demoIndex;
+    emailCount.textContent = resultsBody.querySelectorAll("tr").length - [...resultsBody.querySelectorAll("tr")].filter(r => !r.cells[5].textContent).length;
+    if (demoIndex >= DEMO_DATA.length) stopDemo();
+}
+
+function stopDemo() {
+    clearInterval(demoTimer);
+    statusText.textContent = "Done \u2014 " + demoIndex + " demo results";
+    statusText.className = "done";
+    btnSearch.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled = true;
+    if (demoIndex > 0) enableExport();
+}
+
+function exportFile(fmt) {
+    const rows = [...resultsBody.querySelectorAll("tr")];
+    if (!rows.length) return;
+    const headers = ["Business Name","Category","Address","Phone","Email","Website","Rating","Reviews"];
+    const data = rows.map(r => [r.cells[1].textContent,r.cells[2].textContent,r.cells[3].textContent,r.cells[4].textContent,r.cells[5].textContent,r.cells[6].textContent,r.cells[7].textContent,r.cells[8].textContent]);
+    if (fmt === "json") {
+        const obj = data.map(r => { const o = {}; headers.forEach((h,i) => o[h] = r[i]); return o; });
+        download(JSON.stringify(obj, null, 2), "results.json", "application/json");
+    } else {
+        const csv = [headers.join(","), ...data.map(r => r.map(c => '"'+c.replace(/"/g,'""')+'"').join(","))].join("\n");
+        download(csv, "results.csv", "text/csv");
+        if (fmt === "xlsx") alert("XLSX export requires the full Python backend. CSV downloaded instead.");
+    }
+}
+
+function download(content, filename, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function esc(s) { if (s == null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+queryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") btnSearch.click(); });
+    </script>
+</body>
+</html>
