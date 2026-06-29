@@ -1,13 +1,11 @@
-# Google Maps Lead Extractor
+# Google Data Scraper
 
-> Professional Chrome extension for extracting business data from Google Maps with deep email/social media extraction.
+> Professional Chrome extension for extracting business data from Google Maps.
 
 ## Quick Links
 
 - [Full Documentation](../README.md)
 - [Installation Guide](../README.md#installation)
-- [Configuration](../README.md#configuration)
-- [Architecture](../README.md#architecture)
 
 ## Credits
 

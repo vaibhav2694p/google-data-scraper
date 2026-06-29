@@ -59,6 +59,110 @@
     lastFeedHeight: null,
   };
 
+  // ---------- XHR intercepted data handler ----------
+  // When injected.js intercepts Google Maps search XHR responses,
+  // it posts a message with the raw data. We parse it to extract
+  // business data directly from the API response (faster than DOM scraping).
+  window.addEventListener('message', async function(evt) {
+    if (!evt.data || evt.data.type !== 'search' || !evt.data.data) return;
+    if (!state.running || state.stopRequested) return;
+
+    try {
+      let raw = evt.data.data.replace('/*""*/', '');
+      let parsed = JSON.parse(raw);
+      let data = parsed.d ? JSON.parse(parsed.d.slice(5)) : null;
+
+      if (!data || !Array.isArray(data)) return;
+
+      // data[64] contains the search result items
+      const items = data[64];
+      if (!items || !Array.isArray(items)) return;
+
+      log.info('XHR intercepted ' + items.length + ' search results');
+
+      for (const item of items) {
+        if (!item || !Array.isArray(item)) continue;
+        if (state.extracted >= state.settings.maxResults) break;
+
+        try {
+          const c = item[item.length - 1];
+          if (!c || !Array.isArray(c)) continue;
+
+          const name = c[11] || '';
+          if (!name) continue;
+
+          // Dedup check
+          if (state.settings.dedup && state.seenNames.has(name.toLowerCase().trim())) {
+            state.duplicates += 1;
+            continue;
+          }
+
+          const website = c[7] && c[7][0] || '';
+          const phone = c[178] && c[178][0] && c[178][0][0] || '';
+          const ratingCount = c[4] && c[4][8] || '';
+          const averageRating = c[4] && c[4][7] || '';
+          const category = Array.isArray(c[13]) ? c[13].join(';') : '';
+          const placeId = c[78] || '';
+          const cid = c[37] && c[37][0] && c[37][0][0] && c[37][0][0][13] && c[37][0][0][13][0] && c[37][0][0][13][0][0] && c[37][0][0][13][0][0][1] || '';
+          const address = Array.isArray(c[2]) ? c[2].join(',') : '';
+          const lat = c[9] && c[9][2] || '';
+          const lng = c[9] && c[9][3] || '';
+
+          const record = {
+            name: name,
+            category: category,
+            rating: String(averageRating),
+            reviewsCount: String(ratingCount),
+            phone: phone,
+            address: address,
+            website: website,
+            lat: lat,
+            lng: lng,
+            cid: cid,
+            place_id: placeId,
+            url: cid ? 'https://www.google.com/maps?cid=' + cid : '',
+            keyword: state.settings.keyword || '',
+            extractedAt: new Date().toISOString(),
+          };
+
+          // Deep email/social extraction
+          if (record.website && state.settings.deepEmailSearch) {
+            try {
+              const enriched = await deepExtractFromWebsite(record.website, record.name);
+              if (enriched) {
+                if (enriched.email) record.email = enriched.email;
+                if (enriched.instagram) record.instagram = enriched.instagram;
+                if (enriched.facebook) record.facebook = enriched.facebook;
+                if (enriched.youtube) record.youtube = enriched.youtube;
+                if (enriched.linkedin) record.linkedin = enriched.linkedin;
+                if (enriched.twitter) record.twitter = enriched.twitter;
+              }
+            } catch (e) {
+              // Deep extraction is optional
+            }
+          }
+
+          state.batch.push(record);
+          state.extracted += 1;
+          state.addedThisSession += 1;
+          state.seenNames.add(name.toLowerCase().trim());
+          if (cid) state.seenCIDs.add(String(cid));
+
+          pushProgress({
+            count: state.extracted,
+            added: state.addedThisSession,
+            duplicates: state.duplicates,
+          });
+          scheduleFlush();
+        } catch (err) {
+          state.errors += 1;
+        }
+      }
+    } catch (err) {
+      // XHR parse errors are expected for some responses
+    }
+  });
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
     switch (msg.type) {
@@ -186,9 +290,9 @@
   async function mainLoop(feed) {
     let endReached = false;
     let stagnantScrolls = 0;
-    const STAGNANT_LIMIT = 10;
+    const STAGNANT_LIMIT = 50;
     let consecutiveErrors = 0;
-    const MAX_CONSECUTIVE_ERRORS = 5;
+    const MAX_CONSECUTIVE_ERRORS = 10;
 
     while (state.running && !state.stopRequested && state.extracted < state.settings.maxResults) {
       while (state.paused && !state.stopRequested) await H.sleep(400);
@@ -237,12 +341,24 @@
           stagnantScrolls += 1;
           consecutiveErrors += 1;
           log.info('Stagnant scroll ' + stagnantScrolls + '/' + STAGNANT_LIMIT + ' - retrying...');
+          if (stagnantScrolls % 10 === 0) {
+            log.info('Attempting force scroll after ' + stagnantScrolls + ' stagnant scrolls...');
+            await forceScrollFeed(feed);
+            await H.sleep(3000);
+            after = collectCards(feed).length;
+            if (after > before) {
+              stagnantScrolls = 0;
+              consecutiveErrors = 0;
+              log.info('Force scroll loaded new cards: ' + after);
+              continue;
+            }
+          }
         } else {
           stagnantScrolls = 0;
           consecutiveErrors = 0;
         }
         if (endReached || stagnantScrolls >= STAGNANT_LIMIT) {
-          log.info('No more results to load.');
+          log.info('No more results to load. Total cards found: ' + collectCards(feed).length);
           break;
         }
         continue;

@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Maps Lead Extractor - Business Data Tool",
-  "version": "2.0.0",
+  "name": "Google Data Scraper - Business Lead Extractor",
+  "version": "2.1.0",
   "description": "Professional Google Maps business data extractor with deep email/social extraction. Collects publicly visible listings and exports to CSV / XLSX / JSON.",
   "author": "Vaibhav Patel",
   "minimum_chrome_version": "110",
 
   "action": {
-    "default_title": "Maps Lead Extractor",
+    "default_title": "Google Data Scraper",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "assets/icon16.png",
@@ -52,6 +52,17 @@
         "https://google.com/maps/*"
       ],
       "js": [
+        "contentScript2.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://google.com/maps/*"
+      ],
+      "js": [
         "utils/helpers.js",
         "utils/selectors.js",
         "utils/validators.js",
@@ -64,7 +75,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["libs/xlsx.full.min.js", "assets/*"],
+      "resources": ["libs/xlsx.full.min.js", "injected.js", "assets/*"],
       "matches": ["https://www.google.com/*"]
     }
   ],
