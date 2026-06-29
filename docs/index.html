@@ -34,12 +34,12 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 #statusText.paused { color: #f59e0b; }
 #statusText.done { color: #22c55e; }
 #statusText.error { color: #ef4444; }
-.results { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; }
+.results { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; max-height: 60vh; overflow-y: auto; }
 table { width: 100%; border-collapse: collapse; }
-thead th { position: sticky; top: 0; background: #0f172a; padding: 12px 14px; text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; border-bottom: 1px solid #334155; }
+thead th { position: sticky; top: 0; background: #0f172a; padding: 12px 14px; text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; border-bottom: 1px solid #334155; z-index: 1; }
 tbody tr { border-bottom: 1px solid #1e293b; }
-tbody tr:hover { background: #1e293b; }
-tbody td { padding: 10px 14px; font-size: 0.9rem; color: #cbd5e1; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+tbody tr:hover { background: rgba(56,189,248,0.05); }
+tbody td { padding: 10px 14px; font-size: 0.85rem; color: #cbd5e1; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-state { text-align: center; padding: 48px 20px; color: #64748b; }
 .footer { text-align: center; padding: 16px; color: #64748b; font-size: 0.85rem; border-top: 1px solid #1e293b; }
 .footer a { color: #38bdf8; text-decoration: none; }
@@ -47,14 +47,19 @@ tbody td { padding: 10px 14px; font-size: 0.9rem; color: #cbd5e1; max-width: 240
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: #0f172a; }
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px; }
-.badge-demo { background: #f59e0b; color: #0f172a; }
+.log-area { background: #0f172a; border: 1px solid #334155; border-radius: 8px; margin-top: 12px; padding: 10px 14px; max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; color: #64748b; display: none; }
+.log-area.visible { display: block; }
+.log-line { margin: 2px 0; }
+.log-line.info { color: #94a3b8; }
+.log-line.success { color: #22c55e; }
+.log-line.error { color: #ef4444; }
+.log-line.warn { color: #f59e0b; }
 @media (max-width: 768px) { .container { padding: 12px; } .search-row { flex-direction: column; } .search-row input[type="number"] { width: 100%; } .action-row { flex-direction: column; align-items: stretch; } .export-group { margin-left: 0; justify-content: center; } tbody td { max-width: 140px; } }
     </style>
 </head>
 <body>
     <header class="header">
-        <h1>Google Maps Scraper Pro <span class="badge badge-demo">DEMO</span></h1>
+        <h1>Google Maps Scraper Pro</h1>
         <p>Search Google Maps and extract business data with emails</p>
     </header>
 
@@ -77,14 +82,15 @@ tbody td { padding: 10px 14px; font-size: 0.9rem; color: #cbd5e1; max-width: 240
             </div>
         </section>
 
-        <section class="status-bar" id="statusBar">
-            <span id="statusText">Demo Mode</span>
-            <span id="scrapedCount">0</span> /
-            <span id="emailCount">0</span> emails
+        <section class="status-bar">
+            <span id="statusText">Idle</span>
+            <span>Results: <strong id="scrapedCount">0</strong></span>
+            <span>Emails: <strong id="emailCount">0</strong></span>
+            <span id="queryDisplay" style="color:#64748b"></span>
         </section>
 
         <section class="results">
-            <table id="resultsTable">
+            <table>
                 <thead>
                     <tr>
                         <th>#</th>
@@ -100,8 +106,10 @@ tbody td { padding: 10px 14px; font-size: 0.9rem; color: #cbd5e1; max-width: 240
                 </thead>
                 <tbody id="resultsBody"></tbody>
             </table>
-            <p class="empty-state" id="emptyState">This is a demo deployment on GitHub Pages.<br><br>The full scraper requires a Python backend (Flask + Playwright).<br>Deploy the complete app on <a href="https://railway.app" target="_blank" style="color:#38bdf8">Railway</a> for full functionality.</p>
+            <p class="empty-state" id="emptyState">Enter a search query and click Search to start scraping Google Maps.</p>
         </section>
+
+        <div class="log-area" id="logArea"></div>
     </main>
 
     <footer class="footer">
@@ -109,136 +117,289 @@ tbody td { padding: 10px 14px; font-size: 0.9rem; color: #cbd5e1; max-width: 240
     </footer>
 
     <script>
-const $ = (s) => document.querySelector(s);
-const queryInput = $("#query");
-const maxResultsInput = $("#maxResults");
-const btnSearch = $("#btnSearch");
-const btnPause = $("#btnPause");
-const btnStop = $("#btnStop");
-const btnClear = $("#btnClear");
-const btnExportCsv = $("#btnExportCsv");
-const btnExportXlsx = $("#btnExportXlsx");
-const btnExportJson = $("#btnExportJson");
-const statusText = $("#statusText");
-const scrapedCount = $("#scrapedCount");
-const emailCount = $("#emailCount");
-const resultsBody = $("#resultsBody");
-const emptyState = $("#emptyState");
+(function() {
+    'use strict';
 
-const DEMO_DATA = [
-    { business_name: "George Dimov CPA", category: "Tax consultant", address: "211 E 43rd St Ste 7-100, New York, NY 10017", phone: "+1 212-641-0673", email: "info@nycaccountingconsulting.com", website: "https://www.nycaccountingconsulting.com", rating: 4.6, reviews: 42 },
-    { business_name: "Accountants on Air", category: "Accounting firm", address: "12 E 49th St. 11th Floor, New York, NY 10017", phone: "+1 800-518-1063", email: "", website: "https://accountantsonair.com", rating: 4.9, reviews: 28 },
-    { business_name: "CHAN & COMPANY LLC", category: "Certified public accountant", address: "11 E Broadway 6th floor, New York, NY 10002", phone: "+1 212-566-0560", email: "", website: "http://www.chancompanyllc.us", rating: 4.9, reviews: 15 },
-    { business_name: "Miller & Company LLP", category: "Certified public accountant", address: "274 Madison Ave #402, New York, NY 10016", phone: "+1 646-865-1444", email: "", website: "https://www.cpafirmnyc.com", rating: 4.7, reviews: 33 },
-    { business_name: "Ivy Tax and Accounting Services", category: "Certified public accountant", address: "1350 6th Ave 2nd floor, New York, NY 10019", phone: "+1 212-279-9000", email: "info@healthytaxes.com", website: "https://www.healthytaxes.com", rating: 5.0, reviews: 19 },
-    { business_name: "NYC Tax Solutions", category: "Tax preparation service", address: "500 7th Ave, New York, NY 10018", phone: "+1 212-555-0142", email: "contact@nyctaxsolutions.com", website: "https://nyctaxsolutions.com", rating: 4.8, reviews: 67 },
-    { business_name: "Liberty Tax Service", category: "Tax preparation service", address: "2892 Broadway, New York, NY 10025", phone: "+1 212-555-0198", email: "", website: "https://libertytax.com", rating: 4.3, reviews: 112 },
-    { business_name: "Precision Accounting Group", category: "Accounting firm", address: "1 Penn Plaza, New York, NY 10119", phone: "+1 212-555-0234", email: "info@precisionaccounting.com", website: "https://precisionaccounting.com", rating: 4.5, reviews: 54 },
-];
+    // ===== CONFIGURATION =====
+    // Set this to your backend URL. For local: http://localhost:5000
+    // For Railway: https://your-app.up.railway.app
+    const API_BASE = 'https://google-data-scraper-api-production.up.railway.app';
 
-let demoIndex = 0;
-let demoTimer = null;
+    const $ = (s) => document.querySelector(s);
+    const queryInput = $("#query");
+    const maxResultsInput = $("#maxResults");
+    const btnSearch = $("#btnSearch");
+    const btnPause = $("#btnPause");
+    const btnStop = $("#btnStop");
+    const btnClear = $("#btnClear");
+    const btnExportCsv = $("#btnExportCsv");
+    const btnExportXlsx = $("#btnExportXlsx");
+    const btnExportJson = $("#btnExportJson");
+    const statusText = $("#statusText");
+    const scrapedCount = $("#scrapedCount");
+    const emailCount = $("#emailCount");
+    const queryDisplay = $("#queryDisplay");
+    const resultsBody = $("#resultsBody");
+    const emptyState = $("#emptyState");
+    const logArea = $("#logArea");
 
-function enableExport() { btnExportCsv.disabled = false; btnExportXlsx.disabled = false; btnExportJson.disabled = false; }
-function disableExport() { btnExportCsv.disabled = true; btnExportXlsx.disabled = true; btnExportJson.disabled = true; }
+    let pollTimer = null;
+    let lastRowId = 0;
+    let isPaused = false;
 
-btnSearch.addEventListener("click", () => {
-    const q = queryInput.value.trim();
-    if (!q) { queryInput.focus(); return; }
-    btnSearch.disabled = true;
-    resultsBody.innerHTML = "";
-    demoIndex = 0;
-    emptyState.style.display = "none";
-    statusText.textContent = "Running\u2026";
-    statusText.className = "running";
-    btnPause.disabled = false;
-    btnStop.disabled = false;
-    disableExport();
-    demoTimer = setInterval(addDemoRow, 800);
-});
-
-btnPause.addEventListener("click", () => {
-    if (statusText.textContent === "Paused") {
-        statusText.textContent = "Running\u2026";
-        statusText.className = "running";
-        btnPause.textContent = "Pause";
-        demoTimer = setInterval(addDemoRow, 800);
-    } else {
-        statusText.textContent = "Paused";
-        statusText.className = "paused";
-        btnPause.textContent = "Resume";
-        clearInterval(demoTimer);
+    // ===== LOGGING =====
+    function log(msg, cls) {
+        cls = cls || 'info';
+        const line = document.createElement('div');
+        line.className = 'log-line ' + cls;
+        line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+        logArea.appendChild(line);
+        logArea.scrollTop = logArea.scrollHeight;
+        logArea.classList.add('visible');
+        console.log('[Scraper]', msg);
     }
-});
 
-btnStop.addEventListener("click", stopDemo);
-btnClear.addEventListener("click", () => {
-    clearInterval(demoTimer);
-    resultsBody.innerHTML = "";
-    demoIndex = 0;
-    emptyState.style.display = "block";
-    statusText.textContent = "Demo Mode";
-    statusText.className = "";
-    scrapedCount.textContent = "0";
-    emailCount.textContent = "0";
-    btnSearch.disabled = false;
-    btnPause.disabled = true;
-    btnStop.disabled = true;
-    btnPause.textContent = "Pause";
-    disableExport();
-});
-
-btnExportCsv.addEventListener("click", () => exportFile("csv"));
-btnExportXlsx.addEventListener("click", () => exportFile("xlsx"));
-btnExportJson.addEventListener("click", () => exportFile("json"));
-
-function addDemoRow() {
-    if (demoIndex >= DEMO_DATA.length) { stopDemo(); return; }
-    const r = DEMO_DATA[demoIndex];
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${demoIndex+1}</td><td>${esc(r.business_name)}</td><td>${esc(r.category)}</td><td>${esc(r.address)}</td><td>${esc(r.phone)}</td><td>${esc(r.email)}</td><td>${esc(r.website)}</td><td>${r.rating}</td><td>${r.reviews}</td>`;
-    resultsBody.appendChild(tr);
-    demoIndex++;
-    scrapedCount.textContent = demoIndex;
-    emailCount.textContent = resultsBody.querySelectorAll("tr").length - [...resultsBody.querySelectorAll("tr")].filter(r => !r.cells[5].textContent).length;
-    if (demoIndex >= DEMO_DATA.length) stopDemo();
-}
-
-function stopDemo() {
-    clearInterval(demoTimer);
-    statusText.textContent = "Done \u2014 " + demoIndex + " demo results";
-    statusText.className = "done";
-    btnSearch.disabled = false;
-    btnPause.disabled = true;
-    btnStop.disabled = true;
-    if (demoIndex > 0) enableExport();
-}
-
-function exportFile(fmt) {
-    const rows = [...resultsBody.querySelectorAll("tr")];
-    if (!rows.length) return;
-    const headers = ["Business Name","Category","Address","Phone","Email","Website","Rating","Reviews"];
-    const data = rows.map(r => [r.cells[1].textContent,r.cells[2].textContent,r.cells[3].textContent,r.cells[4].textContent,r.cells[5].textContent,r.cells[6].textContent,r.cells[7].textContent,r.cells[8].textContent]);
-    if (fmt === "json") {
-        const obj = data.map(r => { const o = {}; headers.forEach((h,i) => o[h] = r[i]); return o; });
-        download(JSON.stringify(obj, null, 2), "results.json", "application/json");
-    } else {
-        const csv = [headers.join(","), ...data.map(r => r.map(c => '"'+c.replace(/"/g,'""')+'"').join(","))].join("\n");
-        download(csv, "results.csv", "text/csv");
-        if (fmt === "xlsx") alert("XLSX export requires the full Python backend. CSV downloaded instead.");
+    // ===== API =====
+    async function api(path, opts) {
+        opts = opts || {};
+        try {
+            const resp = await fetch(API_BASE + path, {
+                headers: { 'Content-Type': 'application/json' },
+                method: opts.method || 'GET',
+                body: opts.body ? JSON.stringify(opts.body) : undefined,
+            });
+            if (!resp.ok) {
+                const text = await resp.text();
+                throw new Error('HTTP ' + resp.status + ': ' + text);
+            }
+            return await resp.json();
+        } catch (e) {
+            log('API error: ' + path + ' — ' + e.message, 'error');
+            throw e;
+        }
     }
-}
 
-function download(content, filename, type) {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
+    // ===== SEARCH =====
+    btnSearch.addEventListener('click', async function() {
+        const query = queryInput.value.trim();
+        if (!query) { queryInput.focus(); return; }
 
-function esc(s) { if (s == null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-queryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") btnSearch.click(); });
+        log('Search started: "' + query + '"');
+        btnSearch.disabled = true;
+        lastRowId = 0;
+        resultsBody.innerHTML = '';
+        emptyState.style.display = 'none';
+        isPaused = false;
+
+        try {
+            const data = await api('/api/search', {
+                method: 'POST',
+                body: { query: query, max_results: parseInt(maxResultsInput.value) || 500 }
+            });
+            if (data.error) {
+                log('Search error: ' + data.error, 'error');
+                btnSearch.disabled = false;
+                statusText.textContent = 'Error: ' + data.error;
+                statusText.className = 'error';
+                return;
+            }
+            log('Scrape job started', 'success');
+            setRunning();
+            startPoll();
+        } catch (e) {
+            log('Failed to start search: ' + e.message, 'error');
+            btnSearch.disabled = false;
+            statusText.textContent = 'Connection failed';
+            statusText.className = 'error';
+        }
+    });
+
+    // ===== PAUSE / RESUME =====
+    btnPause.addEventListener('click', async function() {
+        if (isPaused) {
+            await api('/api/resume', { method: 'POST' });
+            isPaused = false;
+            setRunning();
+            log('Resumed', 'info');
+        } else {
+            await api('/api/pause', { method: 'POST' });
+            isPaused = true;
+            statusText.textContent = 'Paused';
+            statusText.className = 'paused';
+            btnPause.textContent = 'Resume';
+            log('Paused', 'warn');
+        }
+    });
+
+    // ===== STOP =====
+    btnStop.addEventListener('click', async function() {
+        await api('/api/stop', { method: 'POST' });
+        stopPoll();
+        statusText.textContent = 'Stopped';
+        statusText.className = 'done';
+        btnSearch.disabled = false;
+        btnPause.disabled = true;
+        btnStop.disabled = true;
+        enableExport();
+        log('Stopped', 'warn');
+    });
+
+    // ===== CLEAR =====
+    btnClear.addEventListener('click', async function() {
+        await api('/api/clear', { method: 'POST' });
+        stopPoll();
+        resultsBody.innerHTML = '';
+        lastRowId = 0;
+        emptyState.style.display = 'block';
+        statusText.textContent = 'Idle';
+        statusText.className = '';
+        scrapedCount.textContent = '0';
+        emailCount.textContent = '0';
+        queryDisplay.textContent = '';
+        btnSearch.disabled = false;
+        btnPause.disabled = true;
+        btnStop.disabled = true;
+        btnPause.textContent = 'Pause';
+        disableExport();
+        logArea.innerHTML = '';
+        logArea.classList.remove('visible');
+        isPaused = false;
+    });
+
+    // ===== EXPORT =====
+    function enableExport() {
+        btnExportCsv.disabled = false;
+        btnExportXlsx.disabled = false;
+        btnExportJson.disabled = false;
+    }
+    function disableExport() {
+        btnExportCsv.disabled = true;
+        btnExportXlsx.disabled = true;
+        btnExportJson.disabled = true;
+    }
+
+    btnExportCsv.addEventListener('click', function() {
+        log('Exporting CSV...');
+        window.open(API_BASE + '/api/export?format=csv');
+    });
+    btnExportXlsx.addEventListener('click', function() {
+        log('Exporting XLSX...');
+        window.open(API_BASE + '/api/export?format=xlsx');
+    });
+    btnExportJson.addEventListener('click', function() {
+        log('Exporting JSON...');
+        window.open(API_BASE + '/api/export?format=json');
+    });
+
+    // ===== POLLING =====
+    function startPoll() {
+        stopPoll();
+        pollTimer = setInterval(pollStatus, 2000);
+    }
+    function stopPoll() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    async function pollStatus() {
+        try {
+            const s = await api('/api/status');
+            scrapedCount.textContent = s.scraped || 0;
+            emailCount.textContent = s.emails_found || 0;
+            queryDisplay.textContent = s.query ? '"' + s.query + '"' : '';
+
+            if (s.status === 'running') {
+                statusText.textContent = 'Running\u2026 (' + (s.scraped || 0) + ' scraped)';
+                statusText.className = 'running';
+            } else if (s.status === 'paused') {
+                statusText.textContent = 'Paused (' + (s.scraped || 0) + ' scraped)';
+                statusText.className = 'paused';
+            } else if (s.status === 'done') {
+                stopPoll();
+                statusText.textContent = 'Done \u2014 ' + (s.scraped || 0) + ' results';
+                statusText.className = 'done';
+                btnSearch.disabled = false;
+                btnPause.disabled = true;
+                btnStop.disabled = true;
+                if (s.scraped > 0) enableExport();
+                log('Complete: ' + s.scraped + ' results, ' + s.emails_found + ' emails', 'success');
+            } else if (s.status === 'error') {
+                stopPoll();
+                statusText.textContent = 'Error: ' + s.error;
+                statusText.className = 'error';
+                btnSearch.disabled = false;
+                btnPause.disabled = true;
+                btnStop.disabled = true;
+                log('Error: ' + s.error, 'error');
+            }
+
+            // Fetch live results
+            const rows = await api('/api/results');
+            if (Array.isArray(rows)) renderRows(rows);
+        } catch (e) {
+            // Polling error — backend might be down
+        }
+    }
+
+    // ===== RENDER =====
+    function setRunning() {
+        statusText.textContent = 'Running\u2026';
+        statusText.className = 'running';
+        btnSearch.disabled = true;
+        btnPause.disabled = false;
+        btnStop.disabled = false;
+        btnPause.textContent = 'Pause';
+        disableExport();
+    }
+
+    function renderRows(rows) {
+        if (!rows || rows.length === 0) {
+            if (lastRowId === 0) {
+                resultsBody.innerHTML = '';
+                emptyState.style.display = 'block';
+            }
+            return;
+        }
+        emptyState.style.display = 'none';
+        for (var i = lastRowId; i < rows.length; i++) {
+            var r = rows[i];
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + (i+1) + '</td>' +
+                '<td title="' + esc(r.business_name) + '">' + esc(r.business_name) + '</td>' +
+                '<td title="' + esc(r.category) + '">' + esc(r.category) + '</td>' +
+                '<td title="' + esc(r.address) + '">' + esc(r.address) + '</td>' +
+                '<td>' + esc(r.phone) + '</td>' +
+                '<td>' + esc(r.email) + '</td>' +
+                '<td title="' + esc(r.website) + '">' + esc(r.website) + '</td>' +
+                '<td>' + (r.rating || '') + '</td>' +
+                '<td>' + (r.reviews != null ? r.reviews : '') + '</td>';
+            resultsBody.appendChild(tr);
+        }
+        lastRowId = rows.length;
+        // Auto-scroll to bottom
+        var section = resultsBody.closest('.results');
+        if (section) section.scrollTop = section.scrollHeight;
+    }
+
+    function esc(s) {
+        if (s == null) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ===== INIT =====
+    queryInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') btnSearch.click(); });
+
+    // Check backend connectivity
+    (async function() {
+        try {
+            await api('/api/status');
+            log('Backend connected', 'success');
+        } catch (e) {
+            statusText.textContent = 'Backend not connected';
+            statusText.className = 'error';
+            log('Cannot reach backend API. Make sure the Python server is running.', 'error');
+        }
+    })();
+})();
     </script>
 </body>
 </html>
