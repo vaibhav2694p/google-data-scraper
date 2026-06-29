@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maps Lead Extractor</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- ============== HEADER ============== -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
+          <path d="M12 2C7.58 2 4 5.58 4 10c0 5.5 8 12 8 12s8-6.5 8-12c0-4.42-3.58-8-8-8Zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z" fill="url(#g1)"/>
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="24" y2="24">
+              <stop offset="0" stop-color="#60a5fa"/>
+              <stop offset="1" stop-color="#2563eb"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>Maps Lead Extractor</h1>
+        <p class="tagline">Business data, structured.</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="themeToggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============== STATUS BANNER ============== -->
+  <section class="status-banner" id="statusBanner" data-state="idle">
+    <span class="status-dot"></span>
+    <span class="status-text" id="statusText">Idle — ready to extract</span>
+    <span class="status-pill" id="statusKeyword"></span>
+  </section>
+
+  <!-- ============== STATS CARDS ============== -->
+  <section class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--blue">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 13h2v-2H3v2Zm0 4h2v-2H3v2Zm0-8h2V7H3v2Zm4 4h14v-2H7v2Zm0 4h14v-2H7v2ZM7 7v2h14V7H7Z"/></svg>
+      </div>
+      <div>
+        <div class="stat-value" id="countTotal">0</div>
+        <div class="stat-label">Extracted</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--green">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19l12-12-1.4-1.4L9 16.2Z"/></svg>
+      </div>
+      <div>
+        <div class="stat-value" id="countValid">0</div>
+        <div class="stat-label">Valid</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--purple">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 8h-2v3h-3v2h3v3h2v-3h3v-2h-3V8Zm-9 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-2.67 0-8 1.34-8 4v2h12v-2c0-2.66-5.33-4-8-4h4Z"/></svg>
+      </div>
+      <div>
+        <div class="stat-value" id="countDup">0</div>
+        <div class="stat-label">Duplicates</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--red">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2 1 21h22L12 2Zm1 14h-2v2h2v-2Zm0-6h-2v5h2v-5Z"/></svg>
+      </div>
+      <div>
+        <div class="stat-value" id="countErr">0</div>
+        <div class="stat-label">Errors</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== PROGRESS ============== -->
+  <section class="progress-section">
+    <div class="progress-row">
+      <span class="progress-label">Progress</span>
+      <span class="progress-value" id="progressPct">0%</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+  </section>
+
+  <!-- ============== CONTROL BUTTONS ============== -->
+  <section class="control-bar">
+    <button id="btnStart" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7L8 5Z"/></svg>
+      Start
+    </button>
+    <button id="btnPause" class="btn btn-secondary" disabled>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 5h4v14H6V5Zm8 0h4v14h-4V5Z"/></svg>
+      Pause
+    </button>
+    <button id="btnStop" class="btn btn-danger" disabled>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 6h12v12H6V6Z"/></svg>
+      Stop
+    </button>
+  </section>
+
+  <!-- ============== TABS ============== -->
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="filters">Filters</button>
+    <button class="tab" data-tab="logs">Logs</button>
+    <button class="tab" data-tab="export">Export</button>
+    <button class="tab" data-tab="history">History</button>
+  </nav>
+
+  <!-- ============== FILTERS PANEL ============== -->
+  <section class="panel active" data-panel="filters">
+    <label class="field">
+      <span class="field-label">Search keyword tag</span>
+      <input type="text" id="keywordInput" placeholder="e.g. CPA firms NYC" />
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">Min rating</span>
+        <input type="number" id="minRating" min="0" max="5" step="0.1" placeholder="4.0" />
+      </label>
+      <label class="field">
+        <span class="field-label">Min reviews</span>
+        <input type="number" id="minReviews" min="0" placeholder="10" />
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Required fields (skip listing if missing)</span>
+      <div class="chip-group">
+        <label class="chip"><input type="checkbox" data-required="phone"/>Phone</label>
+        <label class="chip"><input type="checkbox" data-required="website"/>Website</label>
+        <label class="chip"><input type="checkbox" data-required="address"/>Address</label>
+        <label class="chip"><input type="checkbox" data-required="email"/>Email</label>
+      </div>
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">Scroll delay (ms)</span>
+        <input type="number" id="delayMs" min="500" max="10000" step="100" value="1500" />
+      </label>
+      <label class="field">
+        <span class="field-label">Max results</span>
+        <input type="number" id="maxResults" min="1" max="2000" value="200" />
+      </label>
+    </div>
+
+    <label class="toggle-row">
+      <span>Auto-save progress</span>
+      <input type="checkbox" id="autoSave" checked />
+      <span class="switch"></span>
+    </label>
+
+    <label class="toggle-row">
+      <span>Remove duplicates</span>
+      <input type="checkbox" id="dedup" checked />
+      <span class="switch"></span>
+    </label>
+
+    <label class="toggle-row">
+      <span>Random delay jitter</span>
+      <input type="checkbox" id="jitter" checked />
+      <span class="switch"></span>
+    </label>
+
+    <label class="toggle-row">
+      <span>Deep email/social extraction</span>
+      <input type="checkbox" id="deepEmailSearch" checked />
+      <span class="switch"></span>
+    </label>
+  </section>
+
+  <!-- ============== LOGS PANEL ============== -->
+  <section class="panel" data-panel="logs">
+    <div class="log-toolbar">
+      <span class="log-count" id="logCount">0 entries</span>
+      <button id="btnClearLogs" class="link-btn">Clear</button>
+    </div>
+    <div class="log-console" id="logConsole" aria-live="polite"></div>
+  </section>
+
+  <!-- ============== EXPORT PANEL ============== -->
+  <section class="panel" data-panel="export">
+    <p class="panel-hint">Export the current dataset. Data is stored locally and never leaves your browser.</p>
+    <div class="export-grid">
+      <button id="exportCsv" class="export-card">
+        <span class="ext-badge ext-badge--csv">CSV</span>
+        <span class="export-name">Comma-separated</span>
+        <span class="export-meta">Excel-compatible</span>
+      </button>
+      <button id="exportXlsx" class="export-card">
+        <span class="ext-badge ext-badge--xlsx">XLSX</span>
+        <span class="export-name">Excel workbook</span>
+        <span class="export-meta">SheetJS engine</span>
+      </button>
+      <button id="exportJson" class="export-card">
+        <span class="ext-badge ext-badge--json">JSON</span>
+        <span class="export-name">Raw structured</span>
+        <span class="export-meta">Developer use</span>
+      </button>
+    </div>
+    <button id="btnClearData" class="btn btn-ghost full">Clear all extracted data</button>
+  </section>
+
+  <!-- ============== HISTORY PANEL ============== -->
+  <section class="panel" data-panel="history">
+    <p class="panel-hint">Recent downloads</p>
+    <ul class="history-list" id="historyList">
+      <li class="history-empty">No downloads yet.</li>
+    </ul>
+  </section>
+
+  <!-- ============== FOOTER ============== -->
+  <footer class="app-footer">
+    <span>v1.0.0 · Created by Vaibhav Patel · Use ethically · Public data only</span>
+  </footer>
+
+  <script src="libs/xlsx.full.min.js"></script>
+  <script src="utils/helpers.js"></script>
+  <script src="utils/validators.js"></script>
+  <script src="storage.js"></script>
+  <script src="export.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

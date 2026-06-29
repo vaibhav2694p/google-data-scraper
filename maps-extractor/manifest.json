@@ -1,0 +1,75 @@
+{
+  "manifest_version": 3,
+  "name": "Maps Lead Extractor - Business Data Tool",
+  "version": "2.0.0",
+  "description": "Professional Google Maps business data extractor with deep email/social extraction. Collects publicly visible listings and exports to CSV / XLSX / JSON.",
+  "author": "Vaibhav Patel",
+  "minimum_chrome_version": "110",
+
+  "action": {
+    "default_title": "Maps Lead Extractor",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "32": "assets/icon32.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "tabs",
+    "alarms",
+    "webRequest"
+  ],
+
+  "host_permissions": [
+    "https://www.google.com/maps/*",
+    "https://www.google.com/*",
+    "https://google.com/maps/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://google.com/maps/*"
+      ],
+      "js": [
+        "utils/helpers.js",
+        "utils/selectors.js",
+        "utils/validators.js",
+        "sorry.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["libs/xlsx.full.min.js", "assets/*"],
+      "matches": ["https://www.google.com/*"]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
