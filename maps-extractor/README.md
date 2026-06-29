@@ -80,21 +80,21 @@ A professional Chrome extension for extracting business data from Google Maps. C
 ### File Structure
 ```
 maps-extractor/
-├── manifest.json          # Chrome extension manifest
-├── background.js          # Service worker (message relay, storage, deep extraction)
+├── manifest.json          # Chrome extension manifest (MV3)
+├── background.js          # Service worker (imports sorry.js, message relay, deep extraction)
+├── sorry.js               # Anti-bot /sorry detection (background ONLY via importScripts)
 ├── content.js             # Content script (DOM extraction, auto-scroll)
 ├── popup.html             # Dashboard UI markup
 ├── popup.css              # Dashboard styles
 ├── popup.js               # Dashboard controller
 ├── storage.js             # Chrome storage wrapper
 ├── export.js              # CSV/XLSX/JSON export logic
-├── sorry.js               # Anti-bot /sorry detection
 ├── utils/
-│   ├── helpers.js         # Shared utilities
+│   ├── helpers.js         # Shared utilities (safeSendMessage, sleep, retry)
 │   ├── selectors.js       # DOM selectors + social patterns
 │   └── validators.js      # Field validation
 ├── libs/
-│   └── xlsx.full.min.js   # SheetJS library
+│   └── xlsx.full.min.js   # SheetJS library (real, 945KB)
 └── assets/                # Extension icons
 ```
 
@@ -162,7 +162,16 @@ Extraction state is persisted:
 
 ## Version History
 
-### v2.0.0 (Latest)
+### v2.0.1 (Latest)
+- **Fixed**: sorry.js was loaded in content_scripts instead of background service worker (chrome.webRequest only works in background)
+- **Fixed**: Host permissions now include `*://*/*` so deep email extraction can fetch arbitrary business websites
+- **Fixed**: Removed forbidden User-Agent header from service worker fetch (browsers block this)
+- **Added**: Cloudflare email decoding (`data-cfemail` attribute) from GMB-Scraper
+- **Added**: Social link normalization (instagram.com→www.instagram.com, facebook.com→www.facebook.com, etc.)
+- **Added**: `/sorry` page detection during deep website extraction (was silently failing before)
+- **Fixed**: Version mismatch between footer (v1.0.0) and manifest (v2.0.0)
+
+### v2.0.0
 - Merged best features from GMB-Scraper
 - Added deep email/social extraction
 - Added CID and Place ID extraction

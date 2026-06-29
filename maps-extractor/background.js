@@ -10,6 +10,8 @@
    - Handle anti-bot /sorry detection and deep email extraction.
    ===================================================== */
 
+importScripts('sorry.js');
+
 const STATE = { tabId: -1 };
 
 const KEYS = {
@@ -69,73 +71,100 @@ chrome.runtime.onStartup.addListener(async () => {
   try { chrome.alarms.clear(KEEPALIVE_ALARM); } catch (_) {}
 });
 
+const CCTLDS = new Set('ac ad ae af ag ai al am an ao aq ar as at au aw ax az ba bb bd be bf bg bh bi bj bm bn bo br bs bt bv bw by bz ca cc cd cf cg ch ci ck cl cm cn co cr cu cv cw cx cy cz de dj dk dm do dz ec ee eg eh er es et eu fi fj fk fm fo fr ga gb gd ge gf gg gh gi gl gm gn gp gq gr gs gt gu gw gy hk hm hn hr ht hu id ie il im in io iq ir is it je jm jo jp ke kg kh ki km kn kp kr kw ky kz la lb lc li lk lr ls lt lu lv ly ma mc md me mf mg mh mk ml mm mn mo mp mq mr ms mt mu mv mw mx my mz na nc ne nf ng ni nl no np nr nu nz om pa pe pf pg ph pk pl pm pn pr ps pt pw py qa re ro rs ru rw sa sb sc sd se sg sh si sj sk sl sm sn so sr ss st su sv sx sy sz tc td tf tg th tj tk tl tm tn to tr tt tv tw tz ua ug uk us uy uz va vc ve vg vi vn vu wf ws xk ye yt za zm zw'.split(' '));
+
+const EMAIL_BLACKLIST = new Set('.png .jpg .jpeg .gif .webp wixpress.com sentry.io noreply abuse no-reply subscribe mailer-daemon domain.com email.com yourname wix.com'.split(' '));
+const CONTACT_PAGE_PATHS = '/contact /contact-us /contact-me /about /about-me /about-us /team /our-team /meet-the-team /support /customer-service /feedback /help /sales /return /location /faq'.split(' ');
+const BLACKLISTED_PATHS = new Set('/reel /about /tr /privacy /download /pg /settings /vp /profiles'.split(' '));
+const SOCIAL_MEDIA_DOMAINS = new Set(['instagram', 'facebook', 'youtube', 'linkedin', 'twitter']);
+
+const SOCIAL_MEDIA_PATTERNS = {
+  instagram: /(((http|https):\/\/)?((www\.)?(?:instagram.com|instagr.am)\/([A-Za-z0-9_.]{2,30})))/ig,
+  facebook:  /(?:https?:)?\/\/(?:www\.)?(?:facebook|fb)\.com\/((?![A-z]+\.php)(?!marketplace|gaming|watch|me|messages|help|search|groups)[A-z0-9_\-\.]+)\/?/ig,
+  youtube:   /(?:https?:)?\/\/(?:[A-z]+\.)?youtube\.com\/(channel\/([A-z0-9-_]+)|user\/([A-z0-9]+))\/?/ig,
+  linkedin:  /(?:https?:)?\/\/(?:[\w]+\.)?linkedin\.com\/((company|school)\/[A-z0-9-\u00c0-\u00ff\.]+|in\/[\w\-_\u00c0-\u00ff%]+)\/?/ig,
+  twitter:   /(?:(?:http|https):\/\/)?(?:www.)?(?:twitter\.com|x\.com)\/(?!(oauth|account|tos|privacy|signup|home|hashtag|search|login|widgets|i|settings|start|share|intent|oct)(['"\?\.\/]|$))([A-Za-z0-9_]{1,15})/igm,
+  email:     /\b[A-Z0-9._%+-]{1,64}@(?!-)(?:[A-Z0-9-]+\.)+[A-Z]{2,63}\b/gi,
+};
+
+function decodeCfEmail(encoded) {
+  let result = '';
+  const key = parseInt(encoded.slice(0, 2), 16);
+  for (let i = 2; i < encoded.length; i += 2) {
+    const code = parseInt(encoded.slice(i, i + 2), 16) ^ key;
+    result += String.fromCharCode(code);
+  }
+  return result;
+}
+
+function getDomain(url) {
+  try {
+    const host = new URL(url).host.toLowerCase().split('.');
+    if (host.length >= 3 && CCTLDS.has(host[host.length - 1])) return host[host.length - 3];
+    if (host.length >= 2) return host[host.length - 2];
+    return host[0];
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeSocialLink(link) {
+  if (!link) return '';
+  try {
+    if (link.startsWith('//')) link = 'https:' + link;
+    if (!link.startsWith('http')) link = 'https://' + link;
+    const url = new URL(link);
+    if (url.protocol === 'http:' || url.protocol === '') url.protocol = 'https:';
+    if (url.host === 'instagram.com') url.host = 'www.instagram.com';
+    if (url.host === 'facebook.com') url.host = 'www.facebook.com';
+    if (url.host === 'www.twitter.com') url.host = 'twitter.com';
+    if (url.host === 'www.x.com') url.host = 'x.com';
+    if (BLACKLISTED_PATHS.has(url.pathname)) return '';
+    if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
+    return url.toString();
+  } catch (_) {
+    return '';
+  }
+}
+
 /**
  * Deep email/social extraction from business website.
- * Fetches the page and extracts emails and social media links.
+ * Uses fetchWithSorryDetection for /sorry page handling.
  */
 async function deepExtractFromWebsite(websiteUrl, businessName) {
-  const SOCIAL_MEDIA_PATTERNS = {
-    instagram: /(((http|https):\/\/)?((www\.)?(?:instagram.com|instagr.am)\/([A-Za-z0-9_.]{2,30})))/ig,
-    facebook:  /(?:https?:)?\/\/(?:www\.)?(?:facebook|fb)\.com\/((?![A-z]+\.php)(?!marketplace|gaming|watch|me|messages|help|search|groups)[A-z0-9_\-\.]+)\/?/ig,
-    youtube:   /(?:https?:)?\/\/(?:[A-z]+\.)?youtube\.com\/(channel\/([A-z0-9-_]+)|user\/([A-z0-9]+))\/?/ig,
-    linkedin:  /(?:https?:)?\/\/(?:[\w]+\.)?linkedin\.com\/((company|school)\/[A-z0-9-\u00c0-\u00ff\.]+|in\/[\w\-_\u00c0-\u00ff%]+)\/?/ig,
-    twitter:   /(?:(?:http|https):\/\/)?(?:www.)?(?:twitter\.com|x\.com)\/(?!(oauth|account|tos|privacy|signup|home|hashtag|search|login|widgets|i|settings|start|share|intent|oct)(['"\?\.\/]|$))([A-Za-z0-9_]{1,15})/igm,
-    email:     /\b[A-Z0-9._%+-]{1,64}@(?!-)(?:[A-Z0-9-]+\.)+[A-Z]{2,63}\b/gi,
-  };
-  const EMAIL_BLACKLIST = new Set('.png .jpg .jpeg .gif .webp wixpress.com sentry.io noreply abuse no-reply subscribe mailer-daemon domain.com email.com yourname wix.com'.split(' '));
-  const CONTACT_PAGE_PATHS = '/contact /contact-us /contact-me /about /about-me /about-us /team /our-team /meet-the-team /support /customer-service /feedback /help /sales /return /location /faq'.split(' ');
-
-  function normalizeSocialLink(link) {
-    if (!link) return '';
-    try {
-      if (link.startsWith('//')) link = 'https:' + link;
-      if (!link.startsWith('http')) link = 'https://' + link;
-      const url = new URL(link);
-      if (url.protocol === 'http:' || url.protocol === '') url.protocol = 'https:';
-      if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
-      return url.toString();
-    } catch (_) {
-      return '';
-    }
-  }
-
-  function getDomain(url) {
-    try {
-      const host = new URL(url).host.toLowerCase().split('.');
-      const cctlds = new Set('ac ad ae af ag ai al am an ao aq ar as at au aw ax az ba bb bd be bf bg bh bi bj bm bn bo br bs bt bv bw by bz ca cc cd cf cg ch ci ck cl cm cn co cr cu cv cw cx cy cz de dj dk dm do dz ec ee eg eh er es et eu fj fk fm fo fr ga gb gd ge gf gg gh gi gl gm gn gp gq gr gs gt gu gw gy hk hm hn hr ht hu id ie il im in io iq ir is it je jm jo jp ke kg kh ki km kn kp kr kw ky kz la lb lc li lk lr ls lt lu lv ly ma mc md me mf mg mh mk ml mm mn mo mp mq mr ms mt mu mv mw mx my mz na nc ne nf ng ni nl no np nr nu nz om pa pe pf pg ph pk pl pm pn pr ps pt pw py qa re ro rs ru rw sa sb sc sd se sg sh si sj sk sl sm sn so sr ss st su sv sx sy sz tc td tf tg th tj tk tl tm tn to tr tt tv tw tz ua ug uk us uy uz va vc ve vg vi vn vu wf ws xk ye yt za zm zw'.split(' '));
-      if (host.length >= 3 && cctlds.has(host[host.length - 1])) return host[host.length - 3];
-      if (host.length >= 2) return host[host.length - 2];
-      return host[0];
-    } catch (_) {
-      return null;
-    }
-  }
-
   try {
     if (!websiteUrl.startsWith('http')) websiteUrl = 'https://' + websiteUrl;
 
-    const controller = new AbortController();
-    const timer = setTimeout(function () { controller.abort(); }, 10000);
-
-    const response = await fetch(websiteUrl, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      }
+    const result = await fetchWithSorryDetection(websiteUrl, 10000, {
+      referer: 'https://www.google.com/',
     });
-    clearTimeout(timer);
 
-    if (!response.ok) return null;
-    const html = await response.text();
+    if (!result.success || !result.data) return null;
+
+    const html = result.data;
     if (!html || html.length < 10) return null;
 
     const normalized = html.normalize('NFKC');
     const results = { email: '', instagram: [], facebook: [], youtube: [], linkedin: [], twitter: [] };
 
-    // Extract emails
+    // Decode Cloudflare email protection
+    const cfMatches = normalized.match(/data-cfemail="([a-f0-9]+)"/gi);
+    if (cfMatches) {
+      for (const match of cfMatches) {
+        const encoded = match.match(/data-cfemail="([a-f0-9]+)"/i);
+        if (encoded && encoded[1]) {
+          const decoded = decodeCfEmail(encoded[1]);
+          if (decoded && decoded.includes('@')) {
+            const lower = decoded.toLowerCase();
+            if (!Array.from(EMAIL_BLACKLIST).some(function (b) { return lower.includes(b); })) {
+              if (!results.email) results.email = lower;
+            }
+          }
+        }
+      }
+    }
+
+    // Extract emails from text
     const emailMatches = normalized.match(SOCIAL_MEDIA_PATTERNS.email);
     if (emailMatches) {
       const validEmails = emailMatches.filter(function (e) {
@@ -149,17 +178,71 @@ async function deepExtractFromWebsite(websiteUrl, businessName) {
       }
     }
 
-    // Extract social media links
+    // Extract social media links from href attributes
+    const linkRegex = /<a[^>]+href=["']([^"']+)["']/gi;
+    let linkMatch;
+    const links = [];
+    while ((linkMatch = linkRegex.exec(normalized)) !== null) {
+      if (linkMatch[1]) {
+        try {
+          const resolved = new URL(linkMatch[1], websiteUrl).toString();
+          links.push(resolved);
+        } catch (_) {}
+      }
+    }
+
+    // Find contact pages and extract social links from them
+    const contactPages = [];
+    try {
+      const urlObj = new URL(websiteUrl);
+      for (const link of links) {
+        try {
+          const pathname = new URL(link).pathname.toLowerCase();
+          if (CONTACT_PAGE_PATHS.some(function (p) { return pathname.includes(p); })) {
+            contactPages.push(link);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Extract social media from all links
+    for (const link of links) {
+      try {
+        const host = new URL(link).host.toLowerCase();
+        for (const platform of SOCIAL_MEDIA_DOMAINS) {
+          let matches = false;
+          if (platform === 'twitter') {
+            matches = host === 'twitter.com' || host === 'www.twitter.com' || host.endsWith('.twitter.com') ||
+                      host === 'x.com' || host === 'www.x.com' || host.endsWith('.x.com');
+          } else {
+            matches = host === platform + '.com' || host === 'www.' + platform + '.com' || host.endsWith('.' + platform + '.com');
+          }
+          if (matches) {
+            const normalized = normalizeSocialLink(link);
+            if (normalized && results[platform].indexOf(normalized) === -1) {
+              results[platform].push(normalized);
+            }
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Also extract social from regex on the HTML
     const socialPlatforms = ['instagram', 'facebook', 'youtube', 'linkedin', 'twitter'];
     for (const platform of socialPlatforms) {
       const matches = normalized.match(SOCIAL_MEDIA_PATTERNS[platform]);
       if (matches) {
-        const normalizedLinks = matches.map(normalizeSocialLink).filter(Boolean);
-        results[platform] = [...new Set(normalizedLinks)].slice(0, 3);
+        for (const m of matches) {
+          const normalizedLink = normalizeSocialLink(m);
+          if (normalizedLink && results[platform].indexOf(normalizedLink) === -1) {
+            results[platform].push(normalizedLink);
+          }
+        }
       }
     }
 
-    // Also try to find emails in mailto: links
+    // Find emails in mailto: links
     const mailtoMatches = html.match(/href=["']mailto:([^"']+)["']/gi);
     if (mailtoMatches) {
       for (const match of mailtoMatches) {
@@ -174,33 +257,40 @@ async function deepExtractFromWebsite(websiteUrl, businessName) {
     }
 
     // Deep search: visit contact pages for more emails
-    if (!results.email) {
-      try {
-        const urlObj = new URL(websiteUrl);
-        for (const path of CONTACT_PAGE_PATHS) {
-          try {
-            const contactUrl = urlObj.origin + path;
-            const ctrl = new AbortController();
-            const t = setTimeout(function () { ctrl.abort(); }, 5000);
-            const resp = await fetch(contactUrl, { signal: ctrl.signal, redirect: 'follow' });
-            clearTimeout(t);
-            if (resp.ok) {
-              const contactHtml = await resp.text();
-              const contactEmails = contactHtml.match(SOCIAL_MEDIA_PATTERNS.email);
-              if (contactEmails) {
-                const valid = contactEmails.filter(function (e) {
-                  const lower = e.toLowerCase();
-                  return !Array.from(EMAIL_BLACKLIST).some(function (b) { return lower.includes(b); });
-                });
-                if (valid.length > 0) {
-                  results.email = valid[0].toLowerCase();
+    if (!results.email && contactPages.length > 0) {
+      for (const contactUrl of contactPages.slice(0, 5)) {
+        try {
+          const contactResult = await fetchWithSorryDetection(contactUrl, 5000, {
+            referer: websiteUrl,
+          });
+          if (contactResult.success && contactResult.data) {
+            const contactHtml = contactResult.data;
+            // Check for Cloudflare email
+            const cfContact = contactHtml.match(/data-cfemail="([a-f0-9]+)"/i);
+            if (cfContact && cfContact[1]) {
+              const decoded = decodeCfEmail(cfContact[1]);
+              if (decoded && decoded.includes('@')) {
+                const lower = decoded.toLowerCase();
+                if (!Array.from(EMAIL_BLACKLIST).some(function (b) { return lower.includes(b); })) {
+                  results.email = lower;
                   break;
                 }
               }
             }
-          } catch (_) {}
-        }
-      } catch (_) {}
+            const contactEmails = contactHtml.match(SOCIAL_MEDIA_PATTERNS.email);
+            if (contactEmails) {
+              const valid = contactEmails.filter(function (e) {
+                const lower = e.toLowerCase();
+                return !Array.from(EMAIL_BLACKLIST).some(function (b) { return lower.includes(b); });
+              });
+              if (valid.length > 0) {
+                results.email = valid[0].toLowerCase();
+                break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
     }
 
     return results;
