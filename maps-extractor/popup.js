@@ -3,6 +3,7 @@
    - Wires UI controls to background + storage.
    - Subscribes to relay messages from background for live updates.
    - Handles exports via export.js helpers.
+   - Search bar opens Google Maps with query.
    ===================================================== */
 
 (function () {
@@ -15,6 +16,12 @@
 
   const $ = function (id) { return document.getElementById(id); };
   const els = {
+    searchInput: $('searchInput'),
+    btnSearch: $('btnSearch'),
+    btnAutoExtract: $('btnAutoExtract'),
+    btnExportResults: $('btnExportResults'),
+    btnClearAll: $('btnClearAll'),
+    exportCount: $('exportCount'),
     banner: $('statusBanner'),
     statusText: $('statusText'),
     statusKeyword: $('statusKeyword'),
@@ -55,6 +62,8 @@
   async function init() {
     bindTabs();
     bindControls();
+    bindSearchBar();
+    bindQuickActions();
     bindSettingsAutoSave();
     bindExports();
     bindThemeToggle();
@@ -86,6 +95,40 @@
     });
   }
 
+  function bindSearchBar() {
+    els.btnSearch.addEventListener('click', onSearch);
+    els.searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') onSearch();
+    });
+  }
+
+  async function onSearch() {
+    const query = els.searchInput.value.trim();
+    if (!query) {
+      flashError('Enter a search query first.');
+      return;
+    }
+    const url = 'https://www.google.com/maps/search/' + encodeURIComponent(query);
+    await chrome.tabs.create({ url: url, active: true });
+    flashLog('Opened Google Maps: ' + query);
+  }
+
+  function bindQuickActions() {
+    els.btnAutoExtract.addEventListener('click', onStart);
+    els.btnExportResults.addEventListener('click', function () { doExport('csv'); });
+    els.btnClearAll.addEventListener('click', onClearAll);
+  }
+
+  async function onClearAll() {
+    if (!confirm('Delete all extracted records?\nThis will reset the scraper to start fresh.')) return;
+    await ST.clearDataset();
+    await ST.resetProgress();
+    await ST.clearScrapePos();
+    await hydrateProgress();
+    els.exportCount.textContent = '0';
+    flashLog('All data cleared. Ready for fresh extraction.');
+  }
+
   async function hydrateSettings() {
     const s = await ST.getSettings();
     document.documentElement.setAttribute('data-theme', s.theme || 'dark');
@@ -93,7 +136,7 @@
     els.minRating.value    = s.minRating || '';
     els.minReviews.value   = s.minReviews || '';
     els.delayMs.value      = s.delayMs || 1500;
-    els.maxResults.value   = s.maxResults || 200;
+    els.maxResults.value   = s.maxResults || 500;
     els.autoSave.checked   = !!s.autoSave;
     els.dedup.checked      = !!s.dedup;
     els.jitter.checked     = !!s.jitter;
@@ -101,15 +144,19 @@
     els.requiredChecks.forEach(function (cb) {
       cb.checked = (s.required || []).indexOf(cb.dataset.required) !== -1;
     });
-    if (s.keyword) els.statusKeyword.textContent = s.keyword;
+    if (s.keyword) {
+      els.statusKeyword.textContent = s.keyword;
+      els.searchInput.value = s.keyword;
+    }
   }
 
   async function hydrateProgress() {
     const p = await ST.getProgress();
     renderProgress(p);
     const ds = await ST.getDataset();
+    els.exportCount.textContent = ds.length || 0;
     if (ds.length) {
-      flashLog(ds.length + ' records already saved. Start = resume (skips known listings).');
+      flashLog(ds.length + ' records already saved. Start = resume.');
     }
   }
 
@@ -158,7 +205,7 @@
       return;
     }
     if (resp.resumedFrom > 0) {
-      flashLog('Resuming - ' + resp.resumedFrom + ' saved records will be skipped without re-clicking.');
+      flashLog('Resuming - ' + resp.resumedFrom + ' saved records will be skipped.');
     }
   }
 
@@ -167,7 +214,7 @@
     if (paused) {
       await sendBg({ type: 'MLE_RESUME' });
       setBanner('running', 'Extracting...');
-      els.btnPause.textContent = 'Pause';
+      els.btnPause.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 5h4v14H6V5Zm8 0h4v14h-4V5Z"/></svg> Pause';
     } else {
       await sendBg({ type: 'MLE_PAUSE' });
       setBanner('paused', 'Paused');
@@ -211,12 +258,13 @@
   async function collectSettings() {
     const required = [];
     els.requiredChecks.forEach(function (c) { if (c.checked) required.push(c.dataset.required); });
+    const keyword = V.clean(els.keywordInput.value) || V.clean(els.searchInput.value);
     return {
-      keyword:    V.clean(els.keywordInput.value),
+      keyword:    keyword,
       minRating:  els.minRating.value,
       minReviews: els.minReviews.value,
       delayMs:    Math.max(500, Number(els.delayMs.value) || 1500),
-      maxResults: Math.max(1, Number(els.maxResults.value) || 200),
+      maxResults: Math.max(1, Number(els.maxResults.value) || 500),
       autoSave:   els.autoSave.checked,
       dedup:      els.dedup.checked,
       jitter:     els.jitter.checked,
@@ -241,11 +289,15 @@
           mergeProgress(msg.payload);
           break;
         case 'MLE_RECORDS_RELAY':
+          if (msg.payload && msg.payload.total) {
+            els.exportCount.textContent = msg.payload.total;
+          }
           break;
         case 'MLE_DONE_RELAY':
           setButtons({ running: false, paused: false });
           const p = msg.payload || {};
           setBanner('idle', 'Finished - +' + (p.added || 0) + ' new (' + (p.extracted || 0) + ' total)');
+          els.exportCount.textContent = p.extracted || 0;
           break;
       }
     });
@@ -257,12 +309,13 @@
   }
 
   function renderProgress(p) {
-    els.countTotal.textContent = p.count || 0;
-    els.countValid.textContent = (p.count || 0) - (p.errors || 0);
+    els.countTotal.textContent = (p.total || 0) + (p.count || 0);
+    els.countValid.textContent = p.count || 0;
     els.countDup.textContent   = p.duplicates || 0;
     els.countErr.textContent   = p.errors || 0;
+    els.exportCount.textContent = p.count || 0;
 
-    const goal = (p.maxResults || Number(els.maxResults.value) || 200);
+    const goal = (p.maxResults || Number(els.maxResults.value) || 500);
     const pct = Math.min(100, Math.round(((p.count || 0) / goal) * 100));
     els.progressFill.style.width = pct + '%';
     els.progressPct.textContent  = pct + '%';
@@ -304,6 +357,7 @@
       await ST.resetProgress();
       await ST.clearScrapePos();
       await hydrateProgress();
+      els.exportCount.textContent = '0';
       flashLog('Dataset and scrape position cleared.');
     });
   }
@@ -316,7 +370,7 @@
     }
     const settings = await ST.getSettings();
     const safeKey = (settings.keyword || 'leads').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 40);
-    const base = 'maps_' + safeKey + '_' + H.fileStamp();
+    const base = 'leads_' + safeKey + '_' + H.fileStamp();
 
     let result;
     try {

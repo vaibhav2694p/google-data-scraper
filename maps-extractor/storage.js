@@ -66,6 +66,7 @@
     autoSave: true,
     dedup: true,
     jitter: true,
+    deepEmailSearch: true,
   };
   async function getSettings() {
     const s = (await get(KEYS.SETTINGS)) || {};

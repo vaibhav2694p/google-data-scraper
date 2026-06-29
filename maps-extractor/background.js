@@ -54,7 +54,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     await sset(KEYS.SETTINGS, {
       theme: 'dark', keyword: '', minRating: '', minReviews: '',
-      required: [], delayMs: 1500, maxResults: 200,
+      required: [], delayMs: 1500, maxResults: 500,
       autoSave: true, dedup: true, jitter: true, deepEmailSearch: true,
     });
     await sset(KEYS.PROGRESS, {

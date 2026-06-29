@@ -1,145 +1,148 @@
-# IMPLEMENTATION PLAN
+# Implementation Plan — maps-extractor
 
 ## Overview
 
-Merge the best features from GMB-Scraper-main into the existing maps-extractor project while maintaining code quality, security, and the existing architecture.
+This plan addresses remaining gaps and code quality issues identified during the GMB-Scraper integration. Priorities are ordered by user impact and effort.
 
 ---
 
-## Phase 1: Analysis & Planning ✅ COMPLETED
+## Priority 1: Add Search Bar to Popup
 
-| Task | Status | Output |
-|------|--------|--------|
-| Scan both codebases | ✅ Done | Full file inventory |
-| Create analysis report | ✅ Done | CODE_ANALYSIS_REPORT.md |
-| Create feature comparison | ✅ Done | FEATURE_COMPARISON.md |
-| Identify merge candidates | ✅ Done | 12 features to merge |
+**Impact:** High — directly improves daily usability
+**Effort:** Low — ~50 lines across 3 files
 
----
+### Changes
 
-## Phase 2: Core Feature Integration ✅ COMPLETED
+#### popup.html
+- Add a search input field above the extraction controls
+- Add a "Search" button next to the input
+- Wrap in a new `.search-bar` container div
 
-### 2.1 Anti-bot Detection (`sorry.js`)
-- **Source**: GMB-Scraper `sorry.js` (22 lines)
-- **Target**: New `sorry.js` in maps-extractor (403 lines)
-- **Enhancements**: Full webRequest tracking, context management, redirect chain following
-- **Manifest**: Added `webRequest` permission
-- **Status**: ✅ Complete
+```html
+<div class="search-bar">
+  <input type="text" id="searchInput" placeholder="Search business on Maps...">
+  <button id="searchBtn">Search</button>
+</div>
+```
 
-### 2.2 Deep Email Extraction
-- **Source**: GMB-Scraper `js/mybg.js` extractemail()
-- **Target**: `background.js` deepExtractFromWebsite()
-- **Enhancements**: Contact page crawling, domain-based email priority, email blacklist
-- **Status**: ✅ Complete
+#### popup.js
+- Read `searchInput` value on button click or Enter key
+- Encode the query and construct a Google Maps search URL
+- Use `chrome.tabs.update()` to navigate the active tab to the search URL
+- Optional: close the popup after navigation
 
-### 2.3 Social Media Extraction
-- **Source**: GMB-Scraper `js/mybg.js` SOCIAL_MEDIA_PLATFORMS
-- **Target**: `selectors.js` SOCIAL_MEDIA_PATTERNS + `background.js` extraction
-- **Enhancements**: Normalized link cleanup, platform-specific regex
-- **Status**: ✅ Complete
+```js
+searchBtn.addEventListener('click', () => {
+  const query = searchInput.value.trim();
+  if (!query) return;
+  const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    chrome.tabs.update(tabs[0].id, { url });
+  });
+});
+```
 
-### 2.4 Extended Data Fields
-- **Source**: GMB-Scraper `contentScript.js` parseBusinessData()
-- **Target**: `selectors.js` extractCID() + `content.js` extractDetail()
-- **Fields**: CID, Place ID, social media links
-- **Status**: ✅ Complete
-
-### 2.5 Export Enhancements
-- **Source**: GMB-Scraper `js/dashboard.js` COLUMNS
-- **Target**: `export.js` 22 columns
-- **New columns**: CID, Place ID, Instagram, Facebook, YouTube, LinkedIn, Twitter/X
-- **Status**: ✅ Complete
-
-### 2.6 SheetJS Library Fix
-- **Source**: CDN download (real SheetJS)
-- **Target**: `libs/xlsx.full.min.js` (replaced 657-byte stub with 945KB real library)
-- **Status**: ✅ Complete
+#### popup.css
+- Style the search bar to match existing UI (dark theme, border radius, spacing)
+- Ensure input and button are vertically aligned
 
 ---
 
-## Phase 3: UI Enhancements ✅ COMPLETED
+## Priority 2: Add Demo Data Link
 
-### 3.1 Deep Email Search Toggle
-- **File**: `popup.html` — Added toggle row
-- **File**: `popup.js` — Wired to settings
-- **File**: `background.js` — Added to default settings
-- **Status**: ✅ Complete
+**Impact:** Low — useful for demonstrations only
+**Effort:** Minimal — ~10 lines in 2 files
 
-### 3.2 Footer Credit
-- **File**: `popup.html` — "Created by Vaibhav Patel"
-- **Status**: ✅ Complete
+### Changes
 
----
+#### popup.html
+- Add a small link or button below the search bar or in the footer
+- Text: "Leads Demo Data" or similar
+- Links to a predefined demo dataset URL (or loads a sample JSON from extension storage)
 
-## Phase 4: Documentation ✅ COMPLETED
-
-### 4.1 README.md
-- **Content**: Features, installation, usage, configuration, architecture, privacy
-- **Status**: ✅ Complete
-
-### 4.2 Analysis Reports
-- **Files**: CODE_ANALYSIS_REPORT.md, FEATURE_COMPARISON.md, IMPLEMENTATION_PLAN.md
-- **Status**: ✅ Complete
+#### popup.js
+- Add click handler for the demo link
+- Either navigate to an external URL or populate storage with sample data and trigger the UI to display it
 
 ---
 
-## Phase 5: Testing & Bug Fixes ✅ COMPLETED
+## Priority 3: Code Cleanup
 
-### 5.1 File Integrity Check
-- All 18 files verified present and correct sizes
-- No syntax errors in JavaScript files
-- Manifest JSON valid
-- **Status**: ✅ Complete
+**Impact:** Medium — reduces maintenance burden and eliminates confusion
+**Effort:** Low — refactor only, no new features
 
-### 5.2 Git & GitHub
-- Repository renamed to `google-data-scraper`
-- All files committed and pushed
-- **Status**: ✅ Complete
+### 3a. Remove Duplicate Patterns from background.js
 
----
+| Constant | Keep In | Remove From |
+|----------|---------|-------------|
+| `SOCIAL_MEDIA_PATTERNS` | selectors.js | background.js |
+| `EMAIL_BLACKLIST` | selectors.js | background.js |
+| `CONTACT_PAGE_PATHS` | selectors.js | background.js |
 
-## Final File Inventory
+In `background.js`, import from `selectors.js` via `chrome.runtime.sendMessage` or inline the import at the top of the file.
 
-| File | Lines | Purpose | Changes |
-|------|-------|---------|---------|
-| manifest.json | 75 | Extension config | Added webRequest, sorry.js, v2.0.0, author |
-| background.js | 392 | Service worker | Added deepExtractFromWebsite, MLE_DEEP_EXTRACT |
-| content.js | 607 | DOM extraction | Added CID, place_id, CID-based dedup, deep extract |
-| popup.html | 240 | Dashboard UI | Added deep email toggle, Vaibhav Patel footer |
-| popup.css | 483 | Dashboard styles | No changes |
-| popup.js | 379 | Dashboard controller | Added deepEmailSearch wiring |
-| storage.js | 164 | Storage wrapper | No changes |
-| export.js | 138 | Export logic | Added 7 new columns |
-| sorry.js | 403 | Anti-bot detection | NEW — full /sorry handling |
-| utils/helpers.js | 198 | Utilities | No changes |
-| utils/selectors.js | 150 | DOM selectors | Added social patterns, CID, blacklist |
-| utils/validators.js | 113 | Validation | No changes |
-| libs/xlsx.full.min.js | 945KB | SheetJS | Replaced stub with real library |
-| README.md | 186 | Documentation | Complete rewrite |
-| assets/icon*.png | 4 files | Icons | No changes |
+### 3b. Remove Dead Code
 
----
+| Function | File | Action |
+|----------|------|--------|
+| `monitorVerificationTab()` | sorry.js:~line 200 | Delete entirely |
+| `hash()` | helpers.js:~line 150 | Delete entirely |
 
-## What Was NOT Done (By Design)
+### 3c. Fix `deepEmailSearch` Default
 
-1. **XHR interception** — Not needed; DOM-based extraction is more reliable for MV3
-2. **Review extraction** — Selectors added, full implementation pending (future enhancement)
-3. **200+ Google domains** — Your project targets google.com/maps/* only
-4. **Auth/paywall removal** — Your project never had one
-5. **eval() removal** — Your project never used it
-6. **jQuery removal** — Your project never used it
-7. **Sandbox.html** — Not needed without eval()
-8. **Locale files** — Your project is English-only
+In `storage.js`, add to the defaults object:
+```js
+const DEFAULTS = {
+  // ... existing defaults
+  deepEmailSearch: true
+};
+```
+
+### 3d. Fix `countValid` Statistic
+
+In `popup.js`, either:
+- **Option A:** Rename to `countProcessed` to accurately reflect what it measures
+- **Option B:** Track a separate `validatedCount` variable that only increments when an entry passes all validation checks, and display that instead
+
+Recommend Option B for accuracy.
 
 ---
 
-## Future Enhancements (Not Implemented)
+## Priority 4: Documentation
 
-| Enhancement | Priority | Effort |
-|-------------|----------|--------|
-| Full review extraction | High | Medium |
-| XHR interception (optional) | Low | High |
-| Multi-language support | Low | Medium |
-| Data visualization (charts) | Low | High |
-| Batch CID fetching | Medium | Medium |
-| Export to Google Sheets | Medium | High |
+**Impact:** Low — project reference material
+**Effort:** Low
+
+### Tasks
+- [ ] Update `README.md` with:
+  - Complete setup instructions (clone, load unpacked, permissions)
+  - Feature list with screenshots
+  - Usage guide (search, extract, export)
+  - Troubleshooting section
+- [ ] Create `FINAL_REPORT.md` summarizing the integration project:
+  - What was built
+  - What was integrated from GMB-Scraper
+  - What was intentionally excluded
+  - Known issues and future work
+
+---
+
+## Execution Order
+
+```
+Priority 1 (Search Bar)  ──→  Priority 2 (Demo Link)  ──→  Priority 3 (Cleanup)  ──→  Priority 4 (Docs)
+```
+
+Each priority should be completed and tested before moving to the next. Priority 1 and 2 can be developed in parallel since they touch different parts of the UI.
+
+---
+
+## Testing Checklist
+
+After each priority:
+- [ ] Load unpacked extension in Chrome
+- [ ] Verify popup renders correctly (dark and light themes)
+- [ ] Test extraction on a real Google Maps search
+- [ ] Verify export (CSV, XLSX, JSON) works
+- [ ] Check console for errors
+- [ ] Verify storage operations complete without errors

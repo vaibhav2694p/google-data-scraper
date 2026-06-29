@@ -1,117 +1,69 @@
-# FEATURE COMPARISON
+# Feature Comparison — GMB-Scraper vs maps-extractor
 
-## Features Merged from GMB-Scraper into Your Project (v2.0.0)
+## Summary
 
-| # | Feature | GMB-Scraper Source | Your Project Integration | Status |
-|---|---------|-------------------|--------------------------|--------|
-| 1 | Anti-bot /sorry detection | `sorry.js` (22 lines) | `sorry.js` (403 lines) — enhanced with full webRequest tracking | ✅ Merged |
-| 2 | Deep email extraction | `js/mybg.js` extractemail() | `background.js` deepExtractFromWebsite() — enhanced with contact page crawling | ✅ Merged |
-| 3 | Social media extraction | `js/mybg.js` SOCIAL_MEDIA_PLATFORMS | `selectors.js` SOCIAL_MEDIA_PATTERNS + background extraction | ✅ Merged |
-| 4 | CID extraction | `contentScript.js` data-cid | `selectors.js` extractCID() + content.js integration | ✅ Merged |
-| 5 | Place ID extraction | `contentScript.js` parseBusinessData() | `content.js` extractDetail() from URL pattern | ✅ Merged |
-| 6 | Extended export columns | `js/dashboard.js` COLUMNS | `export.js` 22 columns including CID, Place ID, social | ✅ Merged |
-| 7 | Email blacklist filtering | `js/mybg.js` EMAIL_BLACKLIST | `selectors.js` EMAIL_BLACKLIST + background filtering | ✅ Merged |
-| 8 | Contact page crawling | `js/mybg.js` CONTACT_PAGE_PATHS | `background.js` crawls 18 paths when no email found | ✅ Merged |
-| 9 | Domain-based email priority | `js/mybg.js` get_domain() | `background.js` prioritizes emails matching business domain | ✅ Merged |
-| 10 | Deep email search toggle | N/A (always on) | `popup.html` + `popup.js` user-controllable toggle | ✅ Added |
-| 11 | CID-based deduplication | `contentScript.js` leads_lnglat Set | `content.js` seenCIDs Set + pre-click CID check | ✅ Enhanced |
-| 12 | webRequest permissions | `manifest.json` | `manifest.json` added "webRequest" permission | ✅ Added |
+`maps-extractor` is a rebuilt Manifest V3 extension that integrates all core features from the reference `GMB-Scraper-main` project, drops unnecessary components (auth, XHR interception, toolbar overlay), and adds several new capabilities.
 
 ---
 
-## Features NOT Merged (Intentionally Excluded)
+## Full Comparison
 
-| # | Feature | Reason for Exclusion |
-|---|---------|---------------------|
-| 1 | Auth/login system | User requirement: "No login or registration system" |
-| 2 | Stripe subscription | User requirement: No paywall |
-| 3 | eval() in sandbox | Security risk: eval() can execute arbitrary code |
-| 4 | `*://*/*` host permission | Overly broad, privacy concern |
-| 5 | jQuery dependency | Unnecessary, vanilla JS is sufficient |
-| 6 | ECharts visualization | Not needed for data extraction tool |
-| 7 | Demo data files | Not needed in production extension |
-| 8 | 200+ Google domains | Your project targets google.com/maps/* only |
-| 9 | XHR interception approach | Your DOM-based approach is more reliable for MV3 |
-| 10 | Review extraction | Partially implemented selectors, full feature pending |
-| 11 | Tabulator.js table | Your popup UI is superior |
-| 12 | Semantic UI framework | Not needed, your CSS is custom and clean |
-| 13 | Locale/i18n files | Your project is English-only |
-| 14 | Sandbox.html | Not needed without eval() |
-| 15 | Cloudflare email decode | Low value, most sites don't use it |
-
----
-
-## Features Unique to Your Project (Not in GMB-Scraper)
-
-| Feature | Details |
-|---------|---------|
-| Resume capability | Saves extraction position, rehydrates dedup sets |
-| Dark/Light themes | Full theme switching with CSS custom properties |
-| Animated progress bar | Shimmer effect, real-time percentage |
-| Pause/Resume/Stop | Full extraction lifecycle control |
-| Triple-set deduplication | Name + URL fingerprint + CID |
-| Pre-click dedup | Skips cards without clicking (zero-cost) |
-| Batch flushing | Accumulates records, sends in batches |
-| Scrape position saver | Saves every 5 seconds for crash recovery |
-| Storage abstraction | Promise-based wrapper over chrome.storage |
-| Log persistence | Ring buffer with 500-entry cap |
-| History tracking | Recent downloads with file size |
-| Safe message passing | Never throws on receiver-gone errors |
-| Custom logger | Multi-level (info/ok/warn/error) with channel |
-| Record validation | Phone, email, URL, rating validation |
-| User filters | Min rating, min reviews, required fields |
-| Jitter randomization | Random delays to avoid bot detection |
+| Feature | GMB-Scraper | maps-extractor | Status |
+|---------|-------------|----------------|--------|
+| **Auto-scroll** | ✅ DOM scroll | ✅ DOM scroll + MutationObserver | Integrated |
+| **Email extraction** | ✅ Website fetch + CF decode | ✅ Website fetch + CF decode | Integrated |
+| **Social media extraction** | ✅ 5 platforms | ✅ 5 platforms | Integrated |
+| **Anti-bot /sorry detection** | ✅ webRequest + tab monitoring | ✅ webRequest + tab monitoring | Integrated |
+| **CID extraction** | ✅ From data-cid | ✅ From data-cid + URL | Integrated |
+| **Place ID extraction** | ✅ From APP_INITIALIZATION_STATE | ✅ From URL | Integrated |
+| **Duplicate removal** | ✅ By CID/place_id | ✅ By name+address+phone, CID, URL, name | Integrated (better) |
+| **Resume capability** | ✅ Storage-based | ✅ Storage + position save every 5s | Integrated (better) |
+| **Export CSV** | ✅ Via dashboard.html | ✅ Via popup (Blob download) | Integrated (simpler) |
+| **Export XLSX** | ✅ Via dashboard.html | ✅ Via popup (SheetJS) | Integrated (simpler) |
+| **Export JSON** | ❌ | ✅ | Added |
+| **Progress tracking** | ❌ Basic | ✅ Full (count, errors, duplicates, progress bar) | Added |
+| **Pause / Resume / Stop** | ❌ | ✅ | Added |
+| **Error handling** | ❌ Minimal | ✅ Retry, consecutive error tracking | Added |
+| **Filters (rating, reviews)** | ❌ | ✅ | Added |
+| **Theme support** | ❌ | ✅ Dark/Light | Added |
+| **Log console** | ❌ | ✅ | Added |
+| **Download history** | ❌ | ✅ | Added |
+| **XHR interception** | ✅ | ❌ | Not needed (DOM approach works) |
+| **APP_INITIALIZATION_STATE parsing** | ✅ | ❌ | Not needed (DOM approach works) |
+| **Toolbar overlay** | ✅ | ❌ | Not needed (popup UI is better) |
+| **Review extraction** | ✅ | ❌ | Not requested |
+| **Login/Auth system** | ✅ | ❌ | Intentionally removed |
+| **Subscription/Payment** | ✅ | ❌ | Intentionally removed |
+| **Search input in popup** | ✅ | ❌ | **Needs to be added** |
+| **Leads Demo Data link** | ✅ | ❌ | **Needs to be added** |
+| **Video Showcase link** | ✅ | ❌ | Optional |
 
 ---
 
-## Architecture Comparison
+## What Was Intentionally Dropped
 
-### Your Project (Clean Architecture)
-```
-popup.html ─── popup.js (controller)
-                 ├── storage.js (persistence)
-                 ├── export.js (CSV/XLSX/JSON)
-                 └── libs/xlsx.full.min.js
+| Component | Reason |
+|-----------|--------|
+| XHR interception (injected.js) | DOM-based scraping is more reliable in MV3; no need to intercept network requests |
+| APP_INITIALIZATION_STATE parsing | URL-based Place ID extraction is simpler and sufficient |
+| Toolbar overlay UI | Popup UI provides better UX; overlay conflicts with Maps UI |
+| Review extraction | Not requested by stakeholders |
+| Auth / Login system | Not needed; extension should work without accounts |
+| Subscription / Payment | Not needed; extension is a standalone tool |
 
-background.js (service worker)
-  ├── Message relay (11 types)
-  ├── Deep email extraction
-  └── Keepalive alarm
+---
 
-content.js (DOM extraction)
-  ├── Auto-scroll + MutationObserver
-  ├── Card processing pipeline
-  ├── Dedup (triple-set)
-  └── Batch flushing
+## What Was Added Beyond Reference
 
-utils/
-  ├── helpers.js (sleep, retry, throttle, logger)
-  ├── selectors.js (DOM selectors + social patterns)
-  └── validators.js (field validation)
-
-sorry.js (anti-bot detection)
-```
-
-### GMB-Scraper (Mixed Architecture)
-```
-popup.html ─── jQuery + popup.js
-                 └── auth/* (login, rolecheck, Stripe)
-
-bg.js (service worker)
-  ├── auth/config.js
-  ├── auth/loginbg.js
-  ├── auth/feedback/feedback.js
-  ├── js/mybg.js (email extraction)
-  └── sorry.js
-
-contentScript.js (injected at document_end)
-  ├── UI injection (toolbar)
-  ├── Auto-scroll
-  ├── APP_INITIALIZATION_STATE parsing
-  └── Sandbox iframe fallback
-
-contentScript2.js (injected at document_start)
-  └── injected.js (XHR hook in page context)
-
-sandbox.html (CSP bypass with eval())
-```
+| Feature | Description |
+|---------|-------------|
+| JSON export | Structured data format alongside CSV/XLSX |
+| Full progress tracking | Live count, error count, duplicate count, progress bar |
+| Pause / Resume / Stop | Complete extraction lifecycle control |
+| Retry with error tracking | Configurable retries, consecutive error threshold |
+| Rating & review filters | Filter businesses by minimum rating or review count |
+| Dark/Light theme | Persistent theme preference |
+| Log console | Real-time extraction log in popup |
+| Download history | Tracks all previous exports |
+| Improved duplicate removal | Four strategies: name+address+phone, CID, URL, name |
+| Position-based resume | Saves scroll position every 5 seconds for reliable resume |

@@ -473,6 +473,118 @@ input { font-family: inherit; }
   padding: 24px 0;
 }
 
+/* ---------- Search bar ---------- */
+.search-bar {
+  padding: 10px 18px;
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.search-bar input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.search-bar input:focus {
+  outline: none;
+  border-color: var(--brand-2);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.search-bar input::placeholder {
+  color: var(--text-dim);
+}
+.search-bar .btn-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--gradient-brand);
+  color: #fff;
+  transition: all .15s ease;
+}
+.search-bar .btn-search:hover:not(:disabled) { filter: brightness(1.08); }
+.search-bar .btn-search:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------- Quick actions ---------- */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 0 18px 12px;
+}
+.quick-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  transition: all .15s ease;
+}
+.quick-actions .btn:hover:not(:disabled) {
+  border-color: var(--brand-2);
+  color: var(--brand-1);
+}
+.quick-actions .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.quick-actions .btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.quick-actions .btn-clear {
+  grid-column: 1 / -1;
+  border-color: var(--border);
+}
+.quick-actions .btn-clear:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ---------- Quick links ---------- */
+.quick-links {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 18px 4px;
+}
+.quick-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--brand-1);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  transition: all .15s ease;
+}
+.quick-links a:hover {
+  border-color: var(--brand-2);
+  background: var(--brand-soft);
+  text-decoration: none;
+}
+.quick-links a svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* ---------- Footer ---------- */
 .app-footer {
   padding: 10px 18px 12px;
