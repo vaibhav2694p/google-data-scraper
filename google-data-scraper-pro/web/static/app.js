@@ -17,14 +17,20 @@ const resultsBody    = $("#resultsBody");
 const emptyState     = $("#emptyState");
 
 let pollTimer = null;
+let lastRowId = 0;
 
 /* --- API helpers --- */
 async function api(path, opts = {}) {
-    const resp = await fetch(path, {
-        headers: { "Content-Type": "application/json" },
-        ...opts,
-    });
-    return resp.json();
+    try {
+        const resp = await fetch(path, {
+            headers: { "Content-Type": "application/json" },
+            ...opts,
+        });
+        return await resp.json();
+    } catch (e) {
+        console.error("API error:", path, e);
+        return { error: e.message };
+    }
 }
 
 /* --- Search --- */
@@ -33,6 +39,9 @@ btnSearch.addEventListener("click", async () => {
     if (!query) return queryInput.focus();
 
     btnSearch.disabled = true;
+    lastRowId = 0;
+    resultsBody.innerHTML = "";
+
     const data = await api("/api/search", {
         method: "POST",
         body: JSON.stringify({
@@ -77,6 +86,7 @@ btnClear.addEventListener("click", async () => {
     await api("/api/clear", { method: "POST" });
     stopPoll();
     resultsBody.innerHTML = "";
+    lastRowId = 0;
     emptyState.style.display = "block";
     setStatus("Idle", "");
     scrapedCount.textContent = "0";
@@ -107,7 +117,7 @@ btnExportJson.addEventListener("click", () => window.open("/api/export?format=js
 /* --- Polling --- */
 function startPoll() {
     stopPoll();
-    pollTimer = setInterval(pollStatus, 1500);
+    pollTimer = setInterval(pollStatus, 2000);
 }
 function stopPoll() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -118,27 +128,29 @@ async function pollStatus() {
     scrapedCount.textContent = s.scraped || 0;
     emailCount.textContent = s.emails_found || 0;
 
-    if (s.status === "done") {
-        stopPoll();
-        setStatus("Done", "done");
-        btnSearch.disabled = false;
-        btnPause.disabled = true;
-        btnStop.disabled = true;
-        enableExport();
-    } else if (s.status === "error") {
-        stopPoll();
-        setStatus("Error: " + s.error, "error");
-        btnSearch.disabled = false;
-        btnPause.disabled = true;
-        btnStop.disabled = true;
-    } else if (s.status === "paused") {
-        // already handled by pause button
+    if (s.error) {
+        console.error("Scraper error:", s.error);
     }
 
-    // Fetch new rows
-    const resp = await api("/api/export?format=json");
-    if (!resp.error) {
-        renderRows(resp);
+    if (s.status === "done" || s.status === "error") {
+        stopPoll();
+        if (s.status === "error") {
+            setStatus("Error: " + s.error, "error");
+        } else {
+            setStatus("Done — " + (s.scraped || 0) + " results", "done");
+        }
+        btnSearch.disabled = false;
+        btnPause.disabled = true;
+        btnStop.disabled = true;
+        if (s.scraped > 0) enableExport();
+    } else if (s.status === "running") {
+        setStatus("Running… (" + (s.scraped || 0) + " scraped)", "running");
+    }
+
+    /* Fetch results from dedicated endpoint */
+    const rows = await api("/api/results");
+    if (Array.isArray(rows)) {
+        renderRows(rows);
     }
 }
 
@@ -159,15 +171,15 @@ function setStatus(text, cls) {
 
 function renderRows(rows) {
     if (!rows || rows.length === 0) {
-        resultsBody.innerHTML = "";
-        emptyState.style.display = "block";
+        if (lastRowId === 0) {
+            resultsBody.innerHTML = "";
+            emptyState.style.display = "block";
+        }
         return;
     }
     emptyState.style.display = "none";
 
-    // Only add new rows
-    const existing = resultsBody.children.length;
-    for (let i = existing; i < rows.length; i++) {
+    for (let i = lastRowId; i < rows.length; i++) {
         const r = rows[i];
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -183,11 +195,12 @@ function renderRows(rows) {
         `;
         resultsBody.appendChild(tr);
     }
+    lastRowId = rows.length;
 }
 
 function esc(s) {
     if (s == null) return "";
-    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /* --- Init: Enter key triggers search --- */

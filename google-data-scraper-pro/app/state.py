@@ -5,19 +5,19 @@ import hashlib
 import json
 import os
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
 
 @dataclass
 class JobState:
     query: str = ""
-    status: str = "idle"  # idle | running | paused | done | error
+    status: str = "idle"
     total_found: int = 0
     scraped: int = 0
     emails_found: int = 0
-    results: list[dict[str, Any]] = field(default_factory=list)
-    seen_keys: set[str] = field(default_factory=set)
+    results: list = field(default_factory=list)
+    seen_keys: set = field(default_factory=set)
     error: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -29,6 +29,10 @@ class JobState:
 
     def add_item(self, item: dict) -> bool:
         """Add an item if not a duplicate. Returns True if added."""
+        name = (item.get("business_name") or "").strip()
+        if not name:
+            return False
+
         key = self._key(item)
         with self._lock:
             if key in self.seen_keys:
@@ -55,12 +59,12 @@ class JobState:
             }
 
     def save(self, path: str = "data/state.json") -> None:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with self._lock:
             data = {
                 "query": self.query,
                 "status": self.status,
-                "results": self.results,
+                "results": list(self.results),
             }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)

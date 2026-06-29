@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.styles import Font
 
 EXPORT_FIELDS = [
     "business_name",
@@ -47,21 +48,25 @@ def export_xlsx(results: list[dict[str, Any]], path: str) -> None:
     ws = wb.active
     ws.title = "Results"
 
-    # Header row
+    header_font = Font(bold=True)
+
     for col, field in enumerate(EXPORT_FIELDS, 1):
         cell = ws.cell(row=1, column=col, value=EXPORT_HEADERS.get(field, field))
-        cell.font = cell.font.copy(bold=True)
+        cell.font = header_font
 
-    # Data rows
     for row_idx, item in enumerate(results, 2):
         for col, field in enumerate(EXPORT_FIELDS, 1):
             ws.cell(row=row_idx, column=col, value=item.get(field, ""))
 
-    # Auto-width (approximate)
     for col_idx, field in enumerate(EXPORT_FIELDS, 1):
         header = EXPORT_HEADERS.get(field, field)
-        max_len = max(len(header), *(len(str(item.get(field, ""))) for item in results) if results else [0])
-        ws.column_dimensions[chr(64 + col_idx)].width = min(max_len + 4, 40)
+        max_len = len(header)
+        for item in results:
+            val = str(item.get(field, ""))
+            if len(val) > max_len:
+                max_len = len(val)
+        col_letter = chr(64 + col_idx) if col_idx <= 26 else chr(64 + (col_idx - 1) // 26) + chr(65 + (col_idx - 1) % 26)
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
 
     wb.save(path)
 

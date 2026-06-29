@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
+import traceback
 from typing import Optional
 
 from flask import Blueprint, jsonify, request, send_file, render_template
@@ -71,6 +72,13 @@ def api_search():
 @bp.route("/api/status")
 def api_status():
     return jsonify(job.snapshot())
+
+
+@bp.route("/api/results")
+def api_results():
+    """Return current results as JSON for live table display."""
+    with job._lock:
+        return jsonify(job.results[:])
 
 
 @bp.route("/api/pause", methods=["POST"])
@@ -167,8 +175,9 @@ def _run_scraper(query: str, max_results: int):
             )
         )
     except Exception as e:
-        log.error("Scraper failed: %s", e)
+        log.error("Scraper failed: %s\n%s", e, traceback.format_exc())
         job.error = str(e)
+        job.status = "error"
     finally:
         if job.status == "running":
             job.status = "done"
