@@ -1,38 +1,53 @@
 # Google Data Scraper
 
-> Professional Chrome extension for extracting business data from Google Maps with deep email/social media extraction.
+> Professional Chrome extension for extracting business data from Google Maps. XHR interception-based for maximum reliability.
 
-![Version](https://img.shields.io/badge/version-2.1.0-blue)
+![Version](https://img.shields.io/badge/version-2.2.0-blue)
 ![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-green)
-![License](https://img.shields.io/badge/license-MIT-orange)
+
+## How It Works
+
+Unlike DOM-scraping approaches that click each card individually, this extension **intercepts Google Maps XHR API responses** directly. When Google Maps loads search results, it makes API calls — we capture those responses and extract all business data instantly.
+
+```
+Google Maps XHR → injected.js captures → content.js processes → background.js stores → popup shows
+```
 
 ## Features
 
-- **Unlimited auto-scroll** - Scrapes all available results, not just 20
-- **XHR interception** - Captures search results directly from Google Maps API responses
-- **Deep email extraction** - Crawls business websites and contact pages for emails
-- **Social media discovery** - Instagram, Facebook, YouTube, LinkedIn, Twitter/X
-- **Anti-bot detection** - Detects Google /sorry verification pages
-- **Resume capability** - Pause and resume without losing progress
-- **Smart deduplication** - Prevents duplicate entries using name, address, CID
-- **Multi-format export** - CSV, XLSX (SheetJS), JSON
-- **Dark/Light themes** - Toggle between themes
+- **XHR interception** — Captures data from Google Maps API responses (not DOM)
+- **Unlimited auto-scroll** — Scrolls continuously until all results loaded
+- **Deep email extraction** — Crawls business websites for contact emails
+- **Social media discovery** — Instagram, Facebook, YouTube, LinkedIn, Twitter/X
+- **Cloudflare email decode** — Decodes `data-cfemail` protected emails
+- **Resume capability** — Pause and resume without losing progress
+- **Smart deduplication** — Prevents duplicates using CID and name
+- **Multi-format export** — CSV, XLSX (SheetJS), JSON
+- **Dark/Light themes** — Toggle between themes
 
 ## Data Fields
 
-| Field | Description |
-|-------|-------------|
-| Business Name | Company name |
-| Category | Business category |
-| Rating | Star rating (1-5) |
-| Reviews | Number of reviews |
-| Phone | Phone number |
-| Email | Contact email from website |
-| Website | Business website URL |
-| Address | Full street address |
-| Google Maps URL | Direct Maps link |
-| Latitude | GPS latitude |
-| Longitude | GPS longitude |
+| Field | Source |
+|-------|--------|
+| Business Name | XHR API |
+| Category | XHR API |
+| Rating | XHR API |
+| Reviews | XHR API |
+| Phone | XHR API |
+| Email | Website crawl |
+| Website | XHR API |
+| Address | XHR API |
+| Google Maps URL | Generated from CID |
+| Latitude | XHR API |
+| Longitude | XHR API |
+| Working Hours | XHR API |
+| CID | XHR API |
+| Place ID | XHR API |
+| Instagram | Website crawl |
+| Facebook | Website crawl |
+| YouTube | Website crawl |
+| LinkedIn | Website crawl |
+| Twitter/X | Website crawl |
 
 ## Installation
 
@@ -40,26 +55,26 @@
 2. Open Chrome → `chrome://extensions/`
 3. Enable **Developer mode**
 4. Click **Load unpacked**
-5. Select the `maps-extractor` folder (inner folder with manifest.json)
+5. Select the `maps-extractor` folder (inner folder with `manifest.json`)
 
 ## Usage
 
-1. Open Google Maps and search for businesses
+1. Open Google Maps and search for businesses (e.g., "accounting firm near new york")
 2. Click the extension icon
-3. Click **Start Auto Extract** or **Start**
-4. Monitor progress in the popup
+3. Click **Start Auto Extract**
+4. Watch progress in the popup
 5. Export as CSV, XLSX, or JSON
 
 ## Architecture
 
 ```
 maps-extractor/
-├── manifest.json          # Chrome extension manifest (MV3)
-├── background.js          # Service worker (deep extraction, anti-bot)
+├── manifest.json          # MV3 manifest
+├── background.js          # Service worker (email extraction, storage)
 ├── sorry.js               # Anti-bot /sorry detection
-├── content.js             # DOM extraction + auto-scroll + XHR handler
-├── contentScript2.js      # XHR interceptor injector
+├── contentScript2.js      # XHR interceptor injector (document_start)
 ├── injected.js            # XMLHttpRequest prototype override
+├── content.js             # XHR data processor + auto-scroll
 ├── popup.html             # Dashboard UI
 ├── popup.css              # Dashboard styles
 ├── popup.js               # Dashboard controller
@@ -74,12 +89,14 @@ maps-extractor/
 └── assets/                # Extension icons
 ```
 
-## How It Works
+## XHR Interception Flow
 
-1. **XHR Interception**: `injected.js` patches `XMLHttpRequest.prototype` to capture Google Maps search API responses
-2. **Data Extraction**: `content.js` processes intercepted data and extracts business fields
-3. **Deep Email**: `background.js` fetches business websites to find emails and social links
-4. **Anti-Bot**: `sorry.js` monitors for Google verification pages via `webRequest` API
+1. `contentScript2.js` injects `injected.js` at `document_start`
+2. `injected.js` patches `XMLHttpRequest.prototype.open/send`
+3. When Google Maps makes `/search` XHR calls, the response is captured
+4. Response is posted to `content.js` via `window.postMessage`
+5. `content.js` parses `data[64]` array for all business fields
+6. Auto-scroll triggers new `/search` XHR calls automatically
 
 ## Privacy
 
@@ -92,7 +109,8 @@ maps-extractor/
 
 | Version | Changes |
 |---------|---------|
-| **v2.1.0** | Added XHR interception, fixed 20-record limit (now unlimited), added email scraping, integrated GMB features |
+| **v2.2.0** | Rewrote content.js to XHR-only extraction, fixed auto-scroll, fixed email extraction speed |
+| **v2.1.0** | Added XHR interception, fixed 20-record limit, added email scraping |
 | **v2.0.1** | Fixed sorry.js context, host permissions, Cloudflare email decode |
 | **v2.0.0** | Deep email/social extraction, CID & Place ID, anti-bot detection |
 

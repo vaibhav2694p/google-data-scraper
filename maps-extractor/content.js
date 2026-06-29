@@ -1,21 +1,16 @@
 /* =====================================================
-   content.js - Google Maps DOM extractor
-   Runs inside the Maps tab. Strategy:
-     1. Find the results feed (left pane).
-     2. Auto-scroll to materialise more cards (MutationObserver
-        + end-of-list sentinel + force-scroll fallback).
-     3. For each card NOT already in the resumed dedup set,
-        open it, extract detail-pane fields, normalise + push.
-     4. Throttled, retry-able, pause-able, stop-able.
+   content.js - Google Maps XHR-based extractor
+   Runs inside the Maps tab.
 
-   Resume behaviour:
-     - Background hands the existing dataset in MLE_START.payload.existing.
-     - We rehydrate `seen`, `seenNames`, `seenUrls` from it.
-     - processCard does a PRE-CLICK skip if a card matches any of those -
-       so resuming costs zero clicks for already-known listings.
+   Strategy (same as GMB-Scraper-main, cleaned up):
+     1. Injected.js intercepts XHR responses from /search.
+     2. We parse b[64] from the API response to get all fields.
+     3. Auto-scroll triggers new XHR loads automatically.
+     4. Email extraction happens via background.js in batches.
+     5. Resume/dedup via seenCIDs Set.
 
-   Only publicly visible data is read. Polite delays >=1.5s by default.
-   Extended with XHR interception, deep email/social extraction.
+   No card clicking. No fragile DOM selectors for detail pane.
+   All data comes from the XHR API response.
    ===================================================== */
 
 (function () {
@@ -25,16 +20,6 @@
   window.__MLE_CONTENT_LOADED__ = true;
 
   const H = window.MLE_Helpers;
-  const V = window.MLE_Validators;
-  const S = window.MLE_Selectors;
-  const SELECTORS = S.SELECTORS;
-  const parseLatLngFromUrl = S.parseLatLngFromUrl;
-  const cleanPlaceUrl = S.cleanPlaceUrl;
-  const extractCID = S.extractCID;
-  const normalizeSocialLink = S.normalizeSocialLink;
-  const SOCIAL_MEDIA_PATTERNS = S.SOCIAL_MEDIA_PATTERNS;
-  const CONTACT_PAGE_PATHS = S.CONTACT_PAGE_PATHS;
-  const EMAIL_BLACKLIST = S.EMAIL_BLACKLIST;
   const log = H.makeLogger('content');
 
   // ---------- Runtime state ----------
@@ -43,26 +28,20 @@
     paused: false,
     stopRequested: false,
     settings: null,
-    seen: new Set(),
-    seenNames: new Set(),
-    seenUrls: new Set(),
     seenCIDs: new Set(),
+    seenNames: new Set(),
     extracted: 0,
     addedThisSession: 0,
     errors: 0,
     duplicates: 0,
     batch: [],
     flushTimer: null,
-    processedIndex: 0,
-    scrapePosSaveTimer: null,
-    lastScrollTop: 0,
-    lastFeedHeight: null,
+    staleCount: 0,
   };
 
   // ---------- XHR intercepted data handler ----------
-  // When injected.js intercepts Google Maps search XHR responses,
-  // it posts a message with the raw data. We parse it to extract
-  // business data directly from the API response (faster than DOM scraping).
+  // This is the PRIMARY data source. injected.js captures Google Maps
+  // search API responses and posts them to us via window.postMessage.
   window.addEventListener('message', async function(evt) {
     if (!evt.data || evt.data.type !== 'search' || !evt.data.data) return;
     if (!state.running || state.stopRequested) return;
@@ -80,6 +59,9 @@
 
       log.info('XHR intercepted ' + items.length + ' search results');
 
+      let newCount = 0;
+      const records = [];
+
       for (const item of items) {
         if (!item || !Array.isArray(item)) continue;
         if (state.extracted >= state.settings.maxResults) break;
@@ -91,22 +73,48 @@
           const name = c[11] || '';
           if (!name) continue;
 
-          // Dedup check
-          if (state.settings.dedup && state.seenNames.has(name.toLowerCase().trim())) {
-            state.duplicates += 1;
-            continue;
+          // Get CID for dedup
+          const cid = c[37]?.[0]?.[0]?.[13]?.[0]?.[0]?.[1] || '';
+
+          // Dedup by CID (most reliable) or by name
+          if (state.settings.dedup) {
+            if (cid && state.seenCIDs.has(String(cid))) {
+              state.duplicates += 1;
+              continue;
+            }
+            if (state.seenNames.has(name.toLowerCase().trim())) {
+              state.duplicates += 1;
+              continue;
+            }
           }
 
-          const website = c[7] && c[7][0] || '';
-          const phone = c[178] && c[178][0] && c[178][0][0] || '';
-          const ratingCount = c[4] && c[4][8] || '';
-          const averageRating = c[4] && c[4][7] || '';
+          // Extract all fields from the XHR response
+          const website = c[7]?.[0] || '';
+          const phone = c[178]?.[0]?.[0] || '';
+          const ratingCount = c[4]?.[8] || '';
+          const averageRating = c[4]?.[7] || '';
           const category = Array.isArray(c[13]) ? c[13].join(';') : '';
           const placeId = c[78] || '';
-          const cid = c[37] && c[37][0] && c[37][0][0] && c[37][0][0][13] && c[37][0][0][13][0] && c[37][0][0][13][0][0] && c[37][0][0][13][0][0][1] || '';
           const address = Array.isArray(c[2]) ? c[2].join(',') : '';
-          const lat = c[9] && c[9][2] || '';
-          const lng = c[9] && c[9][3] || '';
+          const lat = c[9]?.[2] || '';
+          const lng = c[9]?.[3] || '';
+
+          // Working hours from c[203]
+          let hours = '';
+          try {
+            const hoursData = c[203]?.[0];
+            if (hoursData && Array.isArray(hoursData)) {
+              const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+              const parts = [];
+              hoursData.forEach(function(h) {
+                const weekDay = h?.[1];
+                const dayName = weekDay ? dayNames[weekDay - 1] : '';
+                const dayHours = Array.isArray(h?.[3]) ? h[3].map(function(a) { return a?.[0] || ''; }).filter(Boolean).join(', ') : '';
+                if (dayName && dayHours) parts.push(dayName + ': ' + dayHours);
+              });
+              hours = parts.join(' | ');
+            }
+          } catch (_) {}
 
           const record = {
             name: name,
@@ -116,53 +124,80 @@
             phone: phone,
             address: address,
             website: website,
+            email: '',
             lat: lat,
             lng: lng,
             cid: cid,
             place_id: placeId,
             url: cid ? 'https://www.google.com/maps?cid=' + cid : '',
+            hours: hours,
             keyword: state.settings.keyword || '',
             extractedAt: new Date().toISOString(),
           };
 
-          // Deep email/social extraction
-          if (record.website && state.settings.deepEmailSearch) {
-            try {
-              const enriched = await deepExtractFromWebsite(record.website, record.name);
-              if (enriched) {
-                if (enriched.email) record.email = enriched.email;
-                if (enriched.instagram) record.instagram = enriched.instagram;
-                if (enriched.facebook) record.facebook = enriched.facebook;
-                if (enriched.youtube) record.youtube = enriched.youtube;
-                if (enriched.linkedin) record.linkedin = enriched.linkedin;
-                if (enriched.twitter) record.twitter = enriched.twitter;
-              }
-            } catch (e) {
-              // Deep extraction is optional
-            }
-          }
+          // Mark as seen
+          if (cid) state.seenCIDs.add(String(cid));
+          state.seenNames.add(name.toLowerCase().trim());
 
-          state.batch.push(record);
+          records.push(record);
           state.extracted += 1;
           state.addedThisSession += 1;
-          state.seenNames.add(name.toLowerCase().trim());
-          if (cid) state.seenCIDs.add(String(cid));
-
-          pushProgress({
-            count: state.extracted,
-            added: state.addedThisSession,
-            duplicates: state.duplicates,
-          });
-          scheduleFlush();
+          newCount += 1;
         } catch (err) {
           state.errors += 1;
         }
+      }
+
+      if (newCount > 0) {
+        log.info('Added ' + newCount + ' new records (' + state.extracted + ' total)');
+
+        // Deep email extraction in batches of 50
+        if (state.settings.deepEmailSearch) {
+          const emailsToFetch = records.filter(function(r) { return r.website; });
+          if (emailsToFetch.length > 0) {
+            log.info('Fetching emails for ' + emailsToFetch.length + ' businesses...');
+            for (let i = 0; i < emailsToFetch.length; i += 50) {
+              const batch = emailsToFetch.slice(i, i + 50);
+              const promises = batch.map(async function(rec) {
+                try {
+                  const result = await H.safeSendMessage({
+                    type: 'MLE_DEEP_EXTRACT',
+                    payload: { website: rec.website, name: rec.name }
+                  });
+                  if (result && result.ok && result.data) {
+                    if (result.data.email) rec.email = result.data.email;
+                    if (result.data.instagram && result.data.instagram.length) rec.instagram = result.data.instagram.join(', ');
+                    if (result.data.facebook && result.data.facebook.length) rec.facebook = result.data.facebook.join(', ');
+                    if (result.data.youtube && result.data.youtube.length) rec.youtube = result.data.youtube.join(', ');
+                    if (result.data.linkedin && result.data.linkedin.length) rec.linkedin = result.data.linkedin.join(', ');
+                    if (result.data.twitter && result.data.twitter.length) rec.twitter = result.data.twitter.join(', ');
+                  }
+                } catch (_) {}
+              });
+              await Promise.all(promises);
+              if (i + 50 < emailsToFetch.length) {
+                await H.sleep(500);
+              }
+            }
+          }
+        }
+
+        // Add all records to batch
+        records.forEach(function(r) { state.batch.push(r); });
+        pushProgress({
+          count: state.extracted,
+          added: state.addedThisSession,
+          duplicates: state.duplicates,
+          errors: state.errors,
+        });
+        scheduleFlush();
       }
     } catch (err) {
       // XHR parse errors are expected for some responses
     }
   });
 
+  // ---------- Message handler ----------
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
     switch (msg.type) {
@@ -192,83 +227,157 @@
     return true;
   });
 
+  // ---------- Start extraction ----------
   async function startExtraction(payload) {
     if (state.running) { log.warn('Already running'); return; }
     const settings = payload.settings || payload || {};
     const existing = Array.isArray(payload.existing) ? payload.existing : [];
-    const scrapePos = payload.scrapePos || {};
 
     state.settings = Object.assign({
-      delayMs: 1500, maxResults: 200, dedup: true, jitter: true,
-      keyword: '', minRating: '', minReviews: '', required: [],
-      deepEmailSearch: true,
+      delayMs: 1500, maxResults: 500, dedup: true, jitter: true,
+      keyword: '', deepEmailSearch: true,
     }, settings);
 
     state.running = true;
     state.paused = false;
     state.stopRequested = false;
-    state.seen = new Set();
-    state.seenNames = new Set();
-    state.seenUrls = new Set();
     state.seenCIDs = new Set();
+    state.seenNames = new Set();
     state.extracted = existing.length;
     state.addedThisSession = 0;
     state.errors = 0;
     state.duplicates = 0;
     state.batch = [];
-    state.processedIndex = scrapePos.processedIndex || 0;
-    state.lastScrollTop = scrapePos.scrollTop || 0;
-    state.lastFeedHeight = scrapePos.feedHeight || null;
+    state.staleCount = 0;
 
+    // Rehydrate dedup sets from existing data
     for (const r of existing) {
-      const key = V.dedupKey(r);
-      if (key) state.seen.add(key);
+      if (r.cid) state.seenCIDs.add(String(r.cid));
       if (r.name) state.seenNames.add(String(r.name).toLowerCase().trim());
-      if (r.url)  state.seenUrls.add(fingerprintUrl(r.url));
-      if (r.cid)  state.seenCIDs.add(String(r.cid));
     }
     if (existing.length) {
-      log.info('Resuming. ' + existing.length + ' records already saved - they will be skipped without re-clicking.');
+      log.info('Resuming - ' + existing.length + ' records already saved.');
     }
-    if (state.processedIndex > 0) {
-      log.info('Resuming from processed index: ' + state.processedIndex + ', scrollTop: ' + state.lastScrollTop);
-    }
-    log.info('Extraction started', { keyword: state.settings.keyword, max: state.settings.maxResults });
 
-    const feed = await H.waitFor(SELECTORS.resultsFeed, { timeout: 8000 });
+    log.info('Extraction started. Keyword: ' + (state.settings.keyword || 'none') + ', Max: ' + state.settings.maxResults);
+
+    // Wait for the feed to appear
+    const feed = await waitForElement('[role="feed"]', 10000);
     if (!feed) {
-      log.error('Results feed not found. Open a Google Maps search results page first.');
+      log.error('Results feed not found. Open Google Maps search first.');
       return finish('error');
     }
 
-    if (state.lastScrollTop > 0) {
-      feed.scrollTop = state.lastScrollTop;
-      await H.sleep(500);
-    }
+    log.info('Feed found. Starting auto-scroll...');
 
-    const observer = new MutationObserver(H.throttle(() => {
-      pushProgress({ total: countCards(feed) });
-    }, 600));
-    observer.observe(feed, { childList: true, subtree: true });
-
-    startScrapePosSaver(feed);
-
-    try {
-      await mainLoop(feed);
-    } catch (err) {
-      log.error('Loop error', err && err.message);
-      state.errors += 1;
-    } finally {
-      stopScrapePosSaver();
-      observer.disconnect();
-      flushBatch(true);
-      finish('idle');
-    }
+    // Start the auto-scroll loop
+    await autoScrollLoop(feed);
   }
 
+  // ---------- Auto-scroll loop ----------
+  // This scrolls the feed to trigger more XHR loads.
+  // Each scroll triggers a new /search XHR which we intercept.
+  async function autoScrollLoop(feed) {
+    let lastHeight = 0;
+    let staleCount = 0;
+    const STALE_LIMIT = 50;
+    let scrollAttempts = 0;
+
+    while (state.running && !state.stopRequested && state.extracted < state.settings.maxResults) {
+      while (state.paused && !state.stopRequested) await H.sleep(400);
+      if (state.stopRequested) break;
+
+      const currentHeight = feed.scrollHeight;
+
+      // Scroll to bottom
+      feed.scrollTop = feed.scrollHeight;
+      await H.sleep(800);
+
+      // Check for end-of-results markers
+      if (document.getElementsByClassName('HlvSq').length > 0) {
+        log.info('Reached end of results (HlvSq marker found).');
+        break;
+      }
+
+      // Check for other end markers
+      const endMarkers = document.querySelectorAll('p.fontBodyMedium span.HlvSq, [data-value="No more results"]');
+      if (endMarkers.length > 0) {
+        log.info('Reached end of results (end marker found).');
+        break;
+      }
+      if (document.body.innerText.indexOf("You've reached the end") !== -1) {
+        log.info('Reached end of results (text marker).');
+        break;
+      }
+
+      // Check if height changed
+      if (currentHeight === lastHeight) {
+        staleCount += 1;
+        if (staleCount >= STALE_LIMIT) {
+          log.info('No new results after ' + STALE_LIMIT + ' scrolls. Stopping.');
+          break;
+        }
+        // Every 10 stale scrolls, try a more aggressive scroll
+        if (staleCount % 10 === 0) {
+          log.info('Trying aggressive scroll (stale: ' + staleCount + ')...');
+          const lastCard = feed.querySelector('a.hfpxzc:last-of-type');
+          if (lastCard) {
+            lastCard.scrollIntoView({ block: 'center', behavior: 'instant' });
+            await H.sleep(500);
+          }
+          feed.scrollTop = feed.scrollHeight;
+          await H.sleep(2000);
+          // Check again after aggressive scroll
+          if (feed.scrollHeight > currentHeight) {
+            staleCount = 0;
+            lastHeight = feed.scrollHeight;
+            log.info('Aggressive scroll loaded new results!');
+            continue;
+          }
+        }
+      } else {
+        staleCount = 0;
+        lastHeight = currentHeight;
+      }
+
+      scrollAttempts += 1;
+      if (scrollAttempts % 20 === 0) {
+        log.info('Scroll attempt ' + scrollAttempts + ' - extracted: ' + state.extracted + ' / ' + state.settings.maxResults);
+      }
+
+      // Random delay between scrolls
+      const delay = state.settings.jitter
+        ? 1000 + Math.floor(Math.random() * 3000)
+        : Number(state.settings.delayMs) || 1500;
+      await H.sleep(delay);
+    }
+
+    if (state.extracted >= state.settings.maxResults) {
+      log.info('Reached max results limit: ' + state.settings.maxResults);
+    }
+
+    finish('idle');
+  }
+
+  // ---------- Helper: wait for element ----------
+  function waitForElement(selector, timeout) {
+    return new Promise(function(resolve) {
+      const el = document.querySelector(selector);
+      if (el) { resolve(el); return; }
+      const observer = new MutationObserver(function() {
+        const el = document.querySelector(selector);
+        if (el) { observer.disconnect(); resolve(el); }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(function() { observer.disconnect(); resolve(null); }, timeout);
+    });
+  }
+
+  // ---------- Finish ----------
   function finish(stateName) {
     state.running = false;
     pushProgress({ state: stateName });
+    flushBatch(true);
     H.safeSendMessage({
       type: 'MLE_DONE',
       payload: {
@@ -278,405 +387,13 @@
         duplicates: state.duplicates,
       },
     });
-    log.ok('Done. +' + state.addedThisSession + ' new (' + state.extracted + ' total). ' + state.duplicates + ' duplicates skipped, ' + state.errors + ' errors.');
+    log.ok('Done. +' + state.addedThisSession + ' new (' + state.extracted + ' total). ' + state.duplicates + ' duplicates, ' + state.errors + ' errors.');
   }
 
-  function fingerprintUrl(url) {
-    if (!url) return '';
-    const m = String(url).match(/\/place\/[^/]+\/(data=[^?#]+)?/);
-    return m ? m[0] : url;
-  }
-
-  async function mainLoop(feed) {
-    let endReached = false;
-    let stagnantScrolls = 0;
-    const STAGNANT_LIMIT = 50;
-    let consecutiveErrors = 0;
-    const MAX_CONSECUTIVE_ERRORS = 10;
-
-    while (state.running && !state.stopRequested && state.extracted < state.settings.maxResults) {
-      while (state.paused && !state.stopRequested) await H.sleep(400);
-      if (state.stopRequested) break;
-
-      const cards = collectCards(feed);
-
-      if (state.processedIndex >= cards.length) {
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          log.warn('Too many consecutive errors, attempting force scroll...');
-          await forceScrollFeed(feed);
-          await H.sleep(2000);
-          consecutiveErrors = 0;
-        }
-        const before = cards.length;
-        await scrollFeed(feed);
-        await H.sleep(2000);
-        let after = collectCards(feed).length;
-
-        if (after === before) {
-          await forceScrollFeed(feed);
-          await H.sleep(2500);
-          after = collectCards(feed).length;
-        }
-
-        const endSelectors = [
-          'p.fontBodyMedium span.HlvSq',
-          'span.HlvSq',
-          'p.fontBodyMedium > span',
-          '[data-value="No more results"]',
-        ];
-        for (const sel of endSelectors) {
-          if (document.querySelector(sel)) {
-            endReached = true;
-            break;
-          }
-        }
-        if (!endReached && document.body.innerText.indexOf("You've reached the end") !== -1) {
-          endReached = true;
-        }
-        if (!endReached && document.body.innerText.indexOf('No more results') !== -1) {
-          endReached = true;
-        }
-
-        if (after === before) {
-          stagnantScrolls += 1;
-          consecutiveErrors += 1;
-          log.info('Stagnant scroll ' + stagnantScrolls + '/' + STAGNANT_LIMIT + ' - retrying...');
-          if (stagnantScrolls % 10 === 0) {
-            log.info('Attempting force scroll after ' + stagnantScrolls + ' stagnant scrolls...');
-            await forceScrollFeed(feed);
-            await H.sleep(3000);
-            after = collectCards(feed).length;
-            if (after > before) {
-              stagnantScrolls = 0;
-              consecutiveErrors = 0;
-              log.info('Force scroll loaded new cards: ' + after);
-              continue;
-            }
-          }
-        } else {
-          stagnantScrolls = 0;
-          consecutiveErrors = 0;
-        }
-        if (endReached || stagnantScrolls >= STAGNANT_LIMIT) {
-          log.info('No more results to load. Total cards found: ' + collectCards(feed).length);
-          break;
-        }
-        continue;
-      }
-
-      while (state.processedIndex < cards.length && state.extracted < state.settings.maxResults) {
-        if (state.stopRequested) break;
-        while (state.paused && !state.stopRequested) await H.sleep(400);
-
-        const card = cards[state.processedIndex++];
-        try {
-          await processCard(card);
-          consecutiveErrors = 0;
-        } catch (err) {
-          state.errors += 1;
-          consecutiveErrors += 1;
-          log.error('card failed', err && err.message);
-          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-            log.warn('Too many consecutive errors, will retry after scroll');
-            break;
-          }
-        }
-        const base = Number(state.settings.delayMs) || 1500;
-        await (state.settings.jitter ? H.jitterSleep(base, 700) : H.sleep(base));
-      }
-
-      if (state.extracted >= state.settings.maxResults) {
-        log.info('Reached max results.');
-        break;
-      }
-    }
-  }
-
-  async function processCard(card) {
-    const cardLink = card.matches && card.matches(SELECTORS.resultLink)
-      ? card
-      : card.querySelector(SELECTORS.resultLink);
-    if (!cardLink) return;
-
-    // PRE-CLICK dedup check (skip without clicking)
-    if (state.settings.dedup) {
-      const cardNameRaw = H.text(card.querySelector(SELECTORS.resultName) || cardLink);
-      const cardName = cardNameRaw ? cardNameRaw.toLowerCase().trim() : '';
-      const cardHrefFp = fingerprintUrl(cardLink.getAttribute('href') || '');
-
-      // Also check CID if available
-      const cardCID = card.getAttribute('data-cid') || '';
-
-      if (
-        (cardName && state.seenNames.has(cardName)) ||
-        (cardHrefFp && state.seenUrls.has(cardHrefFp)) ||
-        (cardCID && state.seenCIDs.has(cardCID))
-      ) {
-        state.duplicates += 1;
-        pushProgress({ duplicates: state.duplicates });
-        return;
-      }
-    }
-
-    await clickCardWithRetry(cardLink);
-
-    const detailNameEl = await H.waitFor(SELECTORS.detailName, { timeout: 8000 });
-    if (!detailNameEl) {
-      log.warn('Detail pane did not load - going back and skipping card');
-      state.errors += 1;
-      await goBackToResults();
-      return;
-    }
-    await H.sleep(500);
-
-    const record = await H.withRetry(() => extractDetail(), { retries: 3, baseDelay: 500 });
-
-    const key = V.dedupKey(record);
-    if (state.settings.dedup && key && state.seen.has(key)) {
-      state.duplicates += 1;
-      pushProgress({ duplicates: state.duplicates });
-      await goBackToResults();
-      return;
-    }
-    state.seen.add(key);
-    if (record.name) state.seenNames.add(String(record.name).toLowerCase().trim());
-    if (record.url)  state.seenUrls.add(fingerprintUrl(record.url));
-    if (record.cid)  state.seenCIDs.add(String(record.cid));
-
-    const v = V.validateRecord(record);
-    if (!v.valid) {
-      log.warn('Invalid record, reasons:', v.reasons.join(','));
-      state.errors += 1;
-      pushProgress({ errors: state.errors });
-      await goBackToResults();
-      return;
-    }
-    if (!V.passesFilters(record, {
-      minRating:  state.settings.minRating,
-      minReviews: state.settings.minReviews,
-      required:   state.settings.required || [],
-    })) {
-      await goBackToResults();
-      return;
-    }
-
-    record.keyword = state.settings.keyword || '';
-    record.extractedAt = new Date().toISOString();
-
-    // Deep email/social extraction from business website
-    if (record.website && state.settings.deepEmailSearch) {
-      try {
-        const enriched = await deepExtractFromWebsite(record.website, record.name);
-        if (enriched) {
-          if (enriched.email && !record.email) record.email = enriched.email;
-          if (enriched.instagram && !record.instagram) record.instagram = enriched.instagram;
-          if (enriched.facebook && !record.facebook) record.facebook = enriched.facebook;
-          if (enriched.youtube && !record.youtube) record.youtube = enriched.youtube;
-          if (enriched.linkedin && !record.linkedin) record.linkedin = enriched.linkedin;
-          if (enriched.twitter && !record.twitter) record.twitter = enriched.twitter;
-        }
-      } catch (e) {
-        log.warn('Deep extraction failed for: ' + record.name);
-      }
-    }
-
-    state.batch.push(record);
-    state.extracted += 1;
-    state.addedThisSession += 1;
-    pushProgress({
-      count: state.extracted,
-      added: state.addedThisSession,
-      duplicates: state.duplicates,
-      errors: state.errors,
-    });
-    scheduleFlush();
-    await goBackToResults();
-  }
-
-  async function clickCardWithRetry(cardLink, retries = 3) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        cardLink.scrollIntoView({ block: 'center', behavior: 'instant' });
-        await H.sleep(200);
-        cardLink.click();
-        await H.sleep(300);
-        const detailNameEl = document.querySelector(SELECTORS.detailName);
-        if (detailNameEl) return true;
-        if (attempt < retries) {
-          log.warn('Click attempt ' + (attempt + 1) + ' failed, retrying...');
-          await goBackToResults();
-          await H.sleep(500 * (attempt + 1));
-        }
-      } catch (err) {
-        if (attempt === retries) throw err;
-        log.warn('Click error: ' + err.message + ', retrying...');
-        await H.sleep(500 * (attempt + 1));
-      }
-    }
-    return false;
-  }
-
-  async function goBackToResults() {
-    try {
-      const backBtn = document.querySelector(SELECTORS.backButton);
-      if (backBtn) {
-        backBtn.click();
-        await H.sleep(300);
-        return;
-      }
-      const feed = document.querySelector(SELECTORS.resultsFeed);
-      if (feed) {
-        feed.focus();
-        await H.sleep(200);
-      }
-    } catch (_) {}
-  }
-
-  function extractDetail() {
-    const rootName = H.text(document.querySelector(SELECTORS.detailName));
-    if (!rootName) throw new Error('detail not ready');
-
-    const url = cleanPlaceUrl(location.href);
-    const ll = parseLatLngFromUrl(location.href) || { lat: '', lng: '' };
-
-    const ratingEl   = document.querySelector(SELECTORS.detailRating);
-    const reviewsEl  = document.querySelector(SELECTORS.detailReviews);
-    const categoryEl = document.querySelector(SELECTORS.detailCategory);
-    const addressEl  = document.querySelector(SELECTORS.detailAddress);
-    const phoneEl    = document.querySelector(SELECTORS.detailPhone);
-    const websiteEl  = document.querySelector(SELECTORS.detailWebsite);
-
-    let reviewsCount = '';
-    if (reviewsEl) {
-      const raw = (reviewsEl.getAttribute('aria-label') || reviewsEl.textContent || '').replace(/[,.\s]/g, '');
-      const m = raw.match(/\d+/);
-      reviewsCount = m ? m[0] : '';
-    }
-
-    let address = '';
-    if (addressEl) {
-      address = addressEl.getAttribute('aria-label') || H.text(addressEl);
-      address = address.replace(/^Address:\s*/i, '').trim();
-    }
-
-    let phone = '';
-    if (phoneEl) {
-      phone = phoneEl.getAttribute('aria-label') || H.text(phoneEl);
-      phone = phone.replace(/^Phone:\s*/i, '').trim();
-      phone = V.normalizePhone(phone);
-    }
-
-    let website = '';
-    if (websiteEl) website = websiteEl.getAttribute('href') || '';
-
-    const hours = extractHours();
-
-    const social = Array.from(document.querySelectorAll(SELECTORS.socialLinks))
-      .map((a) => a.href)
-      .filter((u, i, arr) => u && arr.indexOf(u) === i)
-      .slice(0, 8);
-
-    const paneText = (document.querySelector(SELECTORS.detailRoot) || document.body).innerText || '';
-    const email = V.extractEmail(paneText);
-
-    // Extract CID from page
-    const cid = extractCID();
-
-    // Extract place_id from URL or data
-    let placeId = '';
-    const placeMatch = location.href.match(/place\/[^/]+\/data=[^?#]*!1s([^!]+)/);
-    if (placeMatch) placeId = placeMatch[1];
-
-    return {
-      name: rootName,
-      category: H.text(categoryEl),
-      rating: H.text(ratingEl),
-      reviewsCount: reviewsCount,
-      address: address,
-      phone: phone,
-      website: website,
-      hours: hours,
-      lat: ll.lat || '',
-      lng: ll.lng || '',
-      social: social,
-      email: email,
-      cid: cid,
-      place_id: placeId,
-      url: url,
-    };
-  }
-
-  function extractHours() {
-    const rows = document.querySelectorAll(SELECTORS.detailHoursTable);
-    if (!rows || !rows.length) {
-      const btn = document.querySelector(SELECTORS.detailHoursButton);
-      return btn ? (btn.getAttribute('aria-label') || '').trim() : '';
-    }
-    return Array.from(rows).map((tr) => {
-      const day = H.text(tr.querySelector('th') || tr.children[0]);
-      const time = H.text(tr.querySelector('td') || tr.children[1]);
-      return day + ': ' + time;
-    }).join(' | ');
-  }
-
-  /**
-   * Deep email/social extraction from business website.
-   * Fetches the website and extracts emails and social media links.
-   */
-  async function deepExtractFromWebsite(websiteUrl, businessName) {
-    if (!websiteUrl || !websiteUrl.startsWith('http')) return null;
-
-    try {
-      const result = await H.safeSendMessage({
-        type: 'MLE_DEEP_EXTRACT',
-        payload: { website: websiteUrl, name: businessName }
-      });
-
-      if (result && result.ok && result.data) {
-        return {
-          email: result.data.email || '',
-          instagram: (result.data.instagram || []).join(', '),
-          facebook: (result.data.facebook || []).join(', '),
-          youtube: (result.data.youtube || []).join(', '),
-          linkedin: (result.data.linkedin || []).join(', '),
-          twitter: (result.data.twitter || []).join(', '),
-        };
-      }
-    } catch (e) {
-      // Silently fail - deep extraction is optional
-    }
-    return null;
-  }
-
-  function collectCards(feed) {
-    return Array.from(feed.querySelectorAll(SELECTORS.resultLink));
-  }
-  function countCards(feed) {
-    return feed.querySelectorAll(SELECTORS.resultLink).length;
-  }
-
-  async function scrollFeed(feed) {
-    feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
-    await H.sleep(500);
-    saveScrapePos(feed);
-  }
-
-  async function forceScrollFeed(feed) {
-    const lastCard = feed.querySelector(SELECTORS.resultLink + ':last-of-type');
-    feed.scrollTop = Math.max(0, feed.scrollHeight - feed.clientHeight - 600);
-    await H.sleep(350);
-    if (lastCard && typeof lastCard.focus === 'function') {
-      try { lastCard.focus({ preventScroll: true }); } catch (_) {}
-    }
-    feed.scrollTop = feed.scrollHeight;
-    await H.sleep(450);
-    feed.scrollTo({ top: feed.scrollHeight, behavior: 'instant' });
-    saveScrapePos(feed);
-  }
-
+  // ---------- Batch flush ----------
   function scheduleFlush() {
     if (state.flushTimer) return;
-    state.flushTimer = setTimeout(() => flushBatch(false), 1200);
+    state.flushTimer = setTimeout(function() { flushBatch(false); }, 1200);
   }
   function flushBatch(force) {
     clearTimeout(state.flushTimer);
@@ -690,34 +407,5 @@
   }
   function pushProgress(patch) {
     H.safeSendMessage({ type: 'MLE_PROGRESS', payload: patch });
-  }
-
-  function saveScrapePos(feed) {
-    if (!feed) return;
-    const cards = collectCards(feed);
-    const lastCard = cards[cards.length - 1];
-    const lastCardHref = lastCard ? lastCard.getAttribute('href') : '';
-    const pos = {
-      processedIndex: state.processedIndex,
-      scrollTop: feed.scrollTop,
-      feedHeight: feed.scrollHeight,
-      pageNum: Math.floor(state.processedIndex / 20) + 1,
-      lastCardHref: lastCardHref,
-    };
-    state.lastScrollTop = feed.scrollTop;
-    state.lastFeedHeight = feed.scrollHeight;
-    H.safeSendMessage({ type: 'MLE_SCRAPE_POS', payload: pos });
-  }
-
-  function startScrapePosSaver(feed) {
-    if (state.scrapePosSaveTimer) return;
-    state.scrapePosSaveTimer = setInterval(() => saveScrapePos(feed), 5000);
-  }
-
-  function stopScrapePosSaver() {
-    if (state.scrapePosSaveTimer) {
-      clearInterval(state.scrapePosSaveTimer);
-      state.scrapePosSaveTimer = null;
-    }
   }
 })();

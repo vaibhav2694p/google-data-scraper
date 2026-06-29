@@ -1,11 +1,10 @@
 # Google Data Scraper
 
-> Professional Chrome extension for extracting business data from Google Maps.
+> Professional Chrome extension for extracting business data from Google Maps via XHR interception.
 
 ## Quick Links
 
 - [Full Documentation](../README.md)
-- [Installation Guide](../README.md#installation)
 
 ## Credits
 

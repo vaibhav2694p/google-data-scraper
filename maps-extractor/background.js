@@ -129,19 +129,37 @@ function normalizeSocialLink(link) {
 
 /**
  * Deep email/social extraction from business website.
- * Uses fetchWithSorryDetection for /sorry page handling.
+ * Uses simple fetch for speed. /sorry detection is not needed here
+ * because we're fetching individual business websites, not Google.
  */
 async function deepExtractFromWebsite(websiteUrl, businessName) {
   try {
     if (!websiteUrl.startsWith('http')) websiteUrl = 'https://' + websiteUrl;
 
-    const result = await fetchWithSorryDetection(websiteUrl, 10000, {
-      referer: 'https://www.google.com/',
-    });
+    // Simple fetch with timeout - no /sorry detection needed for business sites
+    const controller = new AbortController();
+    const timeoutId = setTimeout(function() { controller.abort(); }, 8000);
+    
+    let response;
+    try {
+      response = await fetch(websiteUrl, {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        }
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      return null;
+    }
+    clearTimeout(timeoutId);
 
-    if (!result.success || !result.data) return null;
+    if (!response || !response.ok) return null;
 
-    const html = result.data;
+    const html = await response.text();
     if (!html || html.length < 10) return null;
 
     const normalized = html.normalize('NFKC');
@@ -191,10 +209,9 @@ async function deepExtractFromWebsite(websiteUrl, businessName) {
       }
     }
 
-    // Find contact pages and extract social links from them
+    // Find contact pages
     const contactPages = [];
     try {
-      const urlObj = new URL(websiteUrl);
       for (const link of links) {
         try {
           const pathname = new URL(link).pathname.toLowerCase();
@@ -218,9 +235,9 @@ async function deepExtractFromWebsite(websiteUrl, businessName) {
             matches = host === platform + '.com' || host === 'www.' + platform + '.com' || host.endsWith('.' + platform + '.com');
           }
           if (matches) {
-            const normalized = normalizeSocialLink(link);
-            if (normalized && results[platform].indexOf(normalized) === -1) {
-              results[platform].push(normalized);
+            const normalizedLink = normalizeSocialLink(link);
+            if (normalizedLink && results[platform].indexOf(normalizedLink) === -1) {
+              results[platform].push(normalizedLink);
             }
             break;
           }
@@ -256,16 +273,20 @@ async function deepExtractFromWebsite(websiteUrl, businessName) {
       }
     }
 
-    // Deep search: visit contact pages for more emails
+    // Deep search: visit contact pages for more emails (quick, no /sorry)
     if (!results.email && contactPages.length > 0) {
-      for (const contactUrl of contactPages.slice(0, 5)) {
+      for (const contactUrl of contactPages.slice(0, 3)) {
         try {
-          const contactResult = await fetchWithSorryDetection(contactUrl, 5000, {
-            referer: websiteUrl,
+          const ctrl = new AbortController();
+          const tid = setTimeout(function() { ctrl.abort(); }, 5000);
+          const contactResp = await fetch(contactUrl, {
+            signal: ctrl.signal,
+            redirect: 'follow',
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
           });
-          if (contactResult.success && contactResult.data) {
-            const contactHtml = contactResult.data;
-            // Check for Cloudflare email
+          clearTimeout(tid);
+          if (contactResp && contactResp.ok) {
+            const contactHtml = await contactResp.text();
             const cfContact = contactHtml.match(/data-cfemail="([a-f0-9]+)"/i);
             if (cfContact && cfContact[1]) {
               const decoded = decodeCfEmail(cfContact[1]);
