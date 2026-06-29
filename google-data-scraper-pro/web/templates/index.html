@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Maps Scraper Pro</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="header">
+        <h1>Google Maps Scraper Pro</h1>
+        <p>Search Google Maps and extract business data with emails</p>
+    </header>
+
+    <main class="container">
+        <!-- Controls -->
+        <section class="controls">
+            <div class="search-row">
+                <input
+                    type="text"
+                    id="query"
+                    placeholder="e.g. accounting firm near new york"
+                    autocomplete="off"
+                />
+                <input
+                    type="number"
+                    id="maxResults"
+                    value="500"
+                    min="1"
+                    max="5000"
+                    title="Max results"
+                />
+                <button id="btnSearch" class="btn btn-primary">Search</button>
+            </div>
+            <div class="action-row">
+                <button id="btnPause" class="btn btn-secondary" disabled>Pause</button>
+                <button id="btnStop" class="btn btn-danger" disabled>Stop</button>
+                <button id="btnClear" class="btn btn-secondary">Clear</button>
+                <div class="export-group">
+                    <button id="btnExportCsv" class="btn btn-success" disabled>Export CSV</button>
+                    <button id="btnExportXlsx" class="btn btn-success" disabled>Export XLSX</button>
+                    <button id="btnExportJson" class="btn btn-success" disabled>Export JSON</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Status -->
+        <section class="status-bar" id="statusBar">
+            <span id="statusText">Idle</span>
+            <span id="scrapedCount">0</span> /
+            <span id="emailCount">0</span> emails
+        </section>
+
+        <!-- Results Table -->
+        <section class="results">
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Business Name</th>
+                        <th>Category</th>
+                        <th>Address</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Website</th>
+                        <th>Rating</th>
+                        <th>Reviews</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody"></tbody>
+            </table>
+            <p class="empty-state" id="emptyState">No results yet. Enter a search query to begin.</p>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>Created by Vaibhav Patel &mdash; <a href="https://linkedin.com/in/vaibhav2694p" target="_blank">LinkedIn</a> &middot; <a href="https://portfolio-vaibhavpatel.vercel.app/" target="_blank">Portfolio</a> &middot; <a href="https://github.com/vaibhav2694p" target="_blank">GitHub</a></p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
