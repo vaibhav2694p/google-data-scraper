@@ -166,13 +166,12 @@ Extraction state is persisted:
 - **Fixed**: sorry.js was loaded in content_scripts instead of background service worker (chrome.webRequest only works in background)
 - **Fixed**: Host permissions now include `*://*/*` so deep email extraction can fetch arbitrary business websites
 - **Fixed**: Removed forbidden User-Agent header from service worker fetch (browsers block this)
-- **Added**: Cloudflare email decoding (`data-cfemail` attribute) from GMB-Scraper
+- **Added**: Cloudflare email decoding (`data-cfemail` attribute)
 - **Added**: Social link normalization (instagram.com→www.instagram.com, facebook.com→www.facebook.com, etc.)
 - **Added**: `/sorry` page detection during deep website extraction (was silently failing before)
 - **Fixed**: Version mismatch between footer (v1.0.0) and manifest (v2.0.0)
 
 ### v2.0.0
-- Merged best features from GMB-Scraper
 - Added deep email/social extraction
 - Added CID and Place ID extraction
 - Added anti-bot /sorry detection
@@ -189,6 +188,9 @@ Extraction state is persisted:
 ## Credits
 
 Created by **Vaibhav Patel**
+
+- LinkedIn: https://www.linkedin.com/in/vaibhav-patel-b14267227/
+- Portfolio: https://vaibhav2694p.github.io/vaibhav-portfolio-v2/
 
 ## License
 
